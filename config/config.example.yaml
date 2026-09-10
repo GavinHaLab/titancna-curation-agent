@@ -1,0 +1,15 @@
+# Copy to config.yaml and fill in, OR just use environment variables / CLI flags
+# instead -- config.yaml is entirely optional. Precedence is always:
+#   CLI flag  >  environment variable  >  this file
+#
+# This lets a shared/org key live here while any individual teammate overrides
+# it with their own personal key via ANTHROPIC_API_KEY / GEMINI_API_KEY env vars
+# or --anthropic-key / --gemini-key flags, with no code changes.
+
+anthropic:
+  api_key: ""            # or leave blank and use ANTHROPIC_API_KEY env var
+  model: "claude-sonnet-5"
+
+gemini:
+  api_key: ""            # or leave blank and use GEMINI_API_KEY env var
+  model: "gemini-3.1-pro"

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "titan-curation-agent"
+version = "0.1.0"
+description = "No-API-lock-in agent that curates TitanCNA copy-number/LOH candidate solutions using independent Claude + Gemini visual review."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "pandas>=2.0",
+    "PyMuPDF>=1.23",
+    "Pillow>=10.0",
+    "PyYAML>=6.0",
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+titan-curate = "titan_curation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+titan_curation = ["knowledge/*.md"]
