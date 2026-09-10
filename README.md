@@ -149,6 +149,34 @@ layer (OneDrive connector vs. local file path) and the reviewer transport
 and are not synced — only the curation methodology and reporting format are
 kept in step between the two.
 
+## Syncing curation methodology from the Perplexity project
+
+`knowledge/skills.md` and `knowledge/titan_reference.md` are the shared source
+of truth between this repo and the Perplexity Computer prototype. When someone
+updates the curation methodology there, sync it here with:
+
+```bash
+python scripts/sync_knowledge_from_perplexity.py \
+  --project-files <path to the Perplexity project's file checkout> \
+  --commit --push
+```
+
+Run it with no `--commit`/`--push` first to see a dry-run diff. It only ever
+touches `src/titan_curation/knowledge/*.md` -- never `cli.py`, `config.py`, or
+the reviewer backends, since the input layer and API-key handling are meant to
+stay different between the two versions.
+
+**This is a judgment call, not a blind copy.** Some wording in `skills.md`
+(e.g. how plots are located/fetched) is intentionally phrased differently for
+the OneDrive-connector version vs. this local-path CLI. Before running
+`--commit`, read the diff: sync methodology changes (the "plots are primary
+evidence" rule, QC steps, flag definitions), but keep input-mechanism-specific
+phrasing as-is on each side.
+
+Any of the TitanCNA Curation Agent Perplexity project's contributors can run
+this themselves -- they already have write access to this GitHub repo via the
+GavinHaLab org.
+
 ## License
 
 MIT — see `LICENSE`.
