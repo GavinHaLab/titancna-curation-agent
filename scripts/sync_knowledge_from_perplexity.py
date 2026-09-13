@@ -93,6 +93,11 @@ def main():
         args.commit = True
 
     if args.commit:
+        # Make sure this commit is attributed to whoever is actually running
+        # this session, not a stale/hardcoded identity -- see git_identity_setup.sh.
+        identity_script = os.path.join(args.repo_root, "scripts", "git_identity_setup.sh")
+        if os.path.isfile(identity_script):
+            subprocess.run(["bash", identity_script], cwd=args.repo_root, check=True)
         git(args.repo_root, "add", "src/titan_curation/knowledge")
         msg = f"Sync curation methodology from Perplexity project: {', '.join(changed)}"
         git(args.repo_root, "commit", "-m", msg)
