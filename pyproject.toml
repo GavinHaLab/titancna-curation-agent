@@ -14,12 +14,14 @@ dependencies = [
     "PyMuPDF>=1.23",
     "Pillow>=10.0",
     "PyYAML>=6.0",
-    "anthropic>=0.40.0",
-    "google-genai>=1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+# Reviewer backends -- install whichever you plan to use (or both).
+direct = ["anthropic>=0.40.0", "google-genai>=1.0.0"]
+perplexity = ["perplexityai>=0.1.0"]
+all = ["anthropic>=0.40.0", "google-genai>=1.0.0", "perplexityai>=0.1.0"]
 
 [project.scripts]
 titan-curate = "titan_curation.cli:main"

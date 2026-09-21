@@ -3,14 +3,18 @@
 Curates TitanCNA copy-number/LOH candidate solutions for a tumor sample using
 deterministic statistics for triage and two independent vision-capable LLM
 reviewers (Claude and Gemini) for the actual visual QC call. Point it at a
-local folder of TITAN HMM output — no OneDrive, no upload limits, no Perplexity
-account required. Bring your own Anthropic and/or Google API key.
+real TITAN HMM cohort directory (or a local single-sample folder) — no
+OneDrive, no upload limits required. Drive the two reviewers with your own
+Anthropic + Google API keys, **or** with a single Perplexity API key.
 
 This is the standalone, bring-your-own-API-key counterpart to the
 ["TitanCNA Curation Agent"](#relationship-to-the-perplexity-computer-prototype)
 prototype developed on Perplexity Computer. The curation methodology
 (`src/titan_curation/knowledge/skills.md`) is the shared source of truth
 between both.
+
+For running this at scale on an HPC cluster (SLURM, shared filesystems,
+batch/array jobs), see [`docs/HPC_SETUP.md`](docs/HPC_SETUP.md).
 
 ## Why two reviewers, and why plots first
 
@@ -20,8 +24,9 @@ ploidy fits and 2N/4N ploidy-doubling ambiguity often score *better* on S_Dbw
 than the biologically correct solution. This tool's core design rule (see
 `knowledge/skills.md`) is: **plots are primary evidence, text statistics are
 secondary corroboration.** Both reviewers are told this explicitly and are
-shown the genome-wide (and, for closely-ranked pairs, per-chromosome) CNA/LOH
-plots before being given the numeric ranking.
+shown the genome-wide (CNA, CNASEG, LOH, LOHSEG, CF, subclone — PDF preferred,
+PNG fallback) and, for closely-ranked or ploidy-doubling-ambiguous pairs, the
+per-chromosome plots, before being given the numeric ranking.
 
 ## Install
 
@@ -29,6 +34,11 @@ plots before being given the numeric ranking.
 git clone <this-repo>
 cd titan-curation-agent
 pip install -e .
+
+# Pick the reviewer backend(s) you plan to use (installs the matching SDK):
+pip install -e ".[perplexity]"   # single Perplexity API key drives both reviewers
+pip install -e ".[direct]"       # separate Anthropic + Google API keys
+pip install -e ".[all]"          # both backends available, switch anytime
 ```
 
 Requires Python 3.10+. No system dependencies (PDF rendering uses PyMuPDF,
@@ -36,48 +46,103 @@ pure Python/C-extension, no poppler install needed).
 
 ## Configure your API key(s)
 
-Any one of these works; CLI flags win over environment variables, which win
-over `config.yaml`:
+Two reviewer **backends** are supported — pick whichever matches the keys you
+have. `--backend auto` (the default) picks Perplexity if `PERPLEXITY_API_KEY`
+is set, otherwise direct. CLI flags win over environment variables, which win
+over `config.yaml`.
+
+**Backend 1: Perplexity API (one key, both reviewers)** — recommended if you
+only have a Perplexity API key. Get one at [console.perplexity.ai](https://console.perplexity.ai)
+(this is a separate product from a Perplexity account / Computer credits).
+
+```bash
+export PERPLEXITY_API_KEY=pplx-...
+titan-curate run --input ... --sample <name> --backend perplexity
+```
+
+This calls Perplexity's Agent API once per reviewer role, pointed at
+`anthropic/claude-sonnet-5` for the "claude_sonnet" role and
+`google/gemini-3.1-pro-preview` for the "gemini" role by default (override with
+`--perplexity-claude-model` / `--perplexity-gemini-model` or the matching env
+vars). Full setup walkthrough: [`docs/HPC_SETUP.md`](docs/HPC_SETUP.md).
+
+**Backend 2: direct Anthropic + Google keys** (the original design):
 
 ```bash
 # Option A: environment variables (simplest)
 export ANTHROPIC_API_KEY=sk-ant-...
 export GEMINI_API_KEY=...
+titan-curate run --input ... --sample <name> --backend direct
 
 # Option B: your own config file
 cp config/config.example.yaml config.yaml   # then fill in keys/models
-titan-curate run --input ... --config config.yaml
+titan-curate run --input ... --sample <name> --config config.yaml
 
 # Option C: per-invocation flags (handy for a personal key on a shared machine)
-titan-curate run --input ... --anthropic-key sk-ant-... --gemini-key ...
+titan-curate run --input ... --sample <name> --anthropic-key sk-ant-... --gemini-key ...
 ```
 
-You can run with only one provider configured (`--skip-claude` / `--skip-gemini`,
-or simply omit that key) — the tool will save that single review, but the
-merged consensus report needs both.
+You can run with only one reviewer role configured (`--skip-claude` /
+`--skip-gemini`, or simply omit that key) — the tool will save that single
+review, but the merged consensus report needs both.
 
 ## Run it
 
-```bash
-titan-curate run \
-  --input /path/to/00-010_LN_L_WGS \
-  --out results/00-010_LN_L_WGS
-```
+`--input` accepts two layouts:
 
-`--input` accepts:
-- a sample folder containing `ploidyN_clusterM/` subfolders (the standard
-  layout produced by the [GavinHaLab TitanCNA Nextflow pipeline](https://github.com/GavinHaLab/Nextflow-Pipelines/tree/main/TitanCNA)), or
-- a single candidate folder directly (one `params.txt` + `segs.txt` + plots).
+- **Real cohort root** — a directory containing `titanCNA_ploidy2/`,
+  `titanCNA_ploidy3/`, `titanCNA_ploidy4/`, ... subdirectories, each holding
+  every sample's and cluster's flat `params.txt`/`segs.txt` plus a
+  `<sample>_cluster<M>/` plot subfolder (the layout produced by the
+  [GavinHaLab TitanCNA Nextflow pipeline](https://github.com/GavinHaLab/Nextflow-Pipelines/tree/main/TitanCNA)
+  at cohort scale). Since this holds many samples, pair it with a
+  sample-selection flag: `--sample`, `--samples`, `--sample-list-file`, or
+  `--all-samples`.
+- **Legacy single-sample folder** — a folder containing `ploidyN_clusterM/`
+  subfolders directly for one sample (older/local layout, still supported).
+  No sample-selection flag is needed here.
+
+```bash
+# See what samples are available in a cohort root:
+titan-curate list-samples --input /fh/fast/ha_g/.../titan/hmm
+
+# Single sample from a cohort root:
+titan-curate run \
+  --input /fh/fast/ha_g/.../titan/hmm \
+  --sample 00-010_LN_L_WGS \
+  --out-root results
+
+# Several named samples in one run, sharing one cohort CSV:
+titan-curate run --input /fh/fast/ha_g/.../titan/hmm \
+  --samples 00-010_LN_L_WGS,00-020_PRST_N \
+  --out-root results
+
+# Every sample found under the cohort root:
+titan-curate run --input /fh/fast/ha_g/.../titan/hmm --all-samples --out-root results
+
+# Legacy single-sample folder (no --sample needed):
+titan-curate run --input /path/to/00-010_LN_L_WGS --out results/00-010_LN_L_WGS
+```
 
 Useful flags:
 
 ```
+--sample NAME                                  # one sample from a cohort root
+--samples NAME1,NAME2                          # several named samples, one shared cohort CSV
+--sample-list-file FILE                        # one sample name per line
+--all-samples                                  # every sample discoverable under --input
 --top-n 5                  # how many S_Dbw-ranked candidates to visually review (default 5)
 --ambiguity-chromosomes chr4 chr7 chr8 chr12   # per-chromosome zooms for ploidy-doubling pairs
 --dry-run                  # deterministic parsing + ranking only, no plots, no API calls, no cost
---sample-id 00-010_LN_L_WGS
---cohort-csv results/cohort_titan_curation_summary.csv   # append target across many samples
+--backend {auto,direct,perplexity}             # reviewer transport (default auto)
+--cohort-csv results/cohort_titan_curation_summary.csv   # shared append target across samples
+--verbose-errors           # full tracebacks for per-sample failures in batch mode
 ```
+
+In batch mode (`--samples`/`--sample-list-file`/`--all-samples`) a failure on
+one sample is logged and skipped — it does not abort the rest of the batch.
+Every sample still writes its own `results/<sample_id>/` folder, and every
+successful consensus row is appended to the same `--cohort-csv`.
 
 Run `--dry-run` first on any new dataset to sanity-check discovery/parsing
 before spending API calls.
@@ -88,28 +153,45 @@ Exactly two deliverables per sample (plus the intermediate JSON evidence for
 audit/reproducibility):
 
 ```
-results/<sample_id>/
-├── evidence/
-│   ├── evidence.json              # full ranked candidate table + segment metrics
-│   └── candidate_metrics.csv
-├── reviews/
-│   ├── claude_review.json         # raw structured output, reviewer = "claude_sonnet"
-│   └── gemini_review.json         # raw structured output, reviewer = "gemini"
-└── reports/
-    ├── <sample_id>_curation_report.md      # <-- deliverable 1: per-sample report
-    └── cohort_titan_curation_summary.csv   # <-- deliverable 2: one row per sample, appended
+<out-root>/                                       # e.g. results/ (default) or --out-root
+├── cohort_titan_curation_summary.csv           # <-- deliverable 2: one row per sample, shared/appended across the whole batch
+└── <sample_id>/
+    ├── evidence/
+    │   ├── evidence.json              # full ranked candidate table + segment metrics
+    │   └── candidate_metrics.csv
+    ├── reviews/
+    │   ├── claude_review.json         # raw structured output, reviewer = "claude_sonnet"
+    │   └── gemini_review.json         # raw structured output, reviewer = "gemini"
+    └── reports/
+        └── <sample_id>_curation_report.md      # <-- deliverable 1: per-sample report
 ```
+
+For a single-sample run without `--out-root`, pass `--out results/<sample_id>` directly and `--cohort-csv` explicitly if you want it somewhere specific (default: `results/cohort_titan_curation_summary.csv`).
 
 ## Batch / bigger data
 
-Loop the CLI over many sample folders and point every run at the same
-`--cohort-csv` to build one running cohort table:
+For a real cohort root, use the built-in batch modes instead of shelling out a
+loop — they share one `--cohort-csv`, isolate per-sample failures, and print a
+batch summary at the end:
+
+```bash
+titan-curate run --input /fh/fast/ha_g/.../titan/hmm \
+  --all-samples --out-root results --backend perplexity \
+  --cohort-csv results/cohort_titan_curation_summary.csv
+```
+
+For the legacy single-sample-folder layout (or any other case where you
+already have a list of folders), loop the CLI and point every run at the same
+`--cohort-csv`:
 
 ```bash
 for d in /data/titan_runs/*/; do
   titan-curate run --input "$d" --cohort-csv results/cohort_titan_curation_summary.csv
 done
 ```
+
+For SLURM array-job parallelism across hundreds of samples on an HPC cluster,
+see [`docs/HPC_SETUP.md`](docs/HPC_SETUP.md).
 
 ## Repo layout
 
@@ -118,17 +200,23 @@ src/titan_curation/
   knowledge/
     skills.md            curation methodology -- the "plots are primary evidence" rule lives here
     titan_reference.md   condensed TITAN interpretation reference
-  discovery.py            find ploidyN_clusterM candidate folders
+  discovery.py            candidate discovery for BOTH layouts:
+                            - real cohort root: titanCNA_ploidyN/ dirs, many samples
+                            - legacy: ploidyN_clusterM/ subfolders, one sample
+                          also: list_available_samples(), optimalClusterSolution.txt lookup
   parsing.py               params.txt / segs.txt parsers
   evidence_builder.py     ranking + segment-metric evidence.json / candidate_metrics.csv
-  plots.py                 selective plot lookup + on-demand PDF->PNG rendering (PyMuPDF)
-  config.py                 API key / model resolution (flag > env > config.yaml)
+  plots.py                 selective plot lookup (CNA/CNASEG/LOH/LOHSEG/CF/subclone,
+                          PDF preferred else PNG) + on-demand PDF->PNG rendering (PyMuPDF)
+  config.py                 API key / model / backend resolution (flag > env > config.yaml)
   reviewers/
     base.py                 shared system/user prompt construction, JSON schema
-    claude_reviewer.py      Anthropic API backend
-    gemini_reviewer.py      Google Generative AI API backend
+    claude_reviewer.py      Anthropic API backend (direct)
+    gemini_reviewer.py      Google Generative AI API backend (direct)
+    perplexity_reviewer.py  Perplexity Agent API backend (drives BOTH reviewer roles)
   consensus.py              merges both reviews into the per-sample report + cohort CSV row
-  cli.py                     `titan-curate` entry point
+  cli.py                     `titan-curate run` / `titan-curate list-samples` entry point
+docs/HPC_SETUP.md          SLURM / shared-filesystem setup guide
 config/config.example.yaml
 .env.example
 tests/

@@ -15,13 +15,13 @@ Given a sample directory (or titan/hmm/ root), find, for each ploidy/cluster com
 - `{sample}_cluster{N}.params.txt`
 - `{sample}_cluster{N}.segs.txt`
 - `{sample}_cluster{N}.titan.txt` (only needed for deep dives, it's large — don't load it in full by default)
-- the plot directory `{sample}_cluster{N}/` containing genome-wide `*_CNA.pdf`/`.png` (logR), `*_LOH.pdf`/`.png` (allelic ratio), a clonal-frequency/subclone plot, and per-chromosome versions of the CNA/LOH plots
+- the plot directory `{sample}_cluster{N}/` containing genome-wide `*_CNA.pdf`/`.png` (logR) and `*_CNASEG.pdf`/`.png` (logR with called segments overlaid), `*_LOH.pdf`/`.png` (allelic ratio) and `*_LOHSEG.pdf`/`.png` (allelic ratio with called segments overlaid), a clonal-frequency (`*_CF`) and subclone plot, and per-chromosome versions of the CNA/LOH plots. Treat the SEG variants as equally primary evidence, not a substitute for the raw CNA/LOH plots — the segment overlay is useful for spotting over/under-segmentation, but baseline centering and BAF/logR concordance are still best judged from the raw (non-SEG) plots.
 - `optimalClusterSolution.txt` if present, at the sample or project root
 
 **Plot format and size handling:** Prefer the original PDF plots when present — render them to images for the vision model rather than trying to read raw PDF bytes. If only flattened PNGs exist, use those directly. Either way, **never bulk-fetch/load the whole per-sample plot bundle (all ploidy×cluster combinations × all chromosomes can exceed 50–80MB).** Select plots incrementally:
 1. First parse only the small text files (`params.txt`, `segs.txt`) for every candidate — these are a few KB to tens of KB each.
 2. Rank by S_Dbw/log-likelihood/segment metrics (Step 1–2 below) to narrow to the top 3–5 candidates.
-3. Render/select genome-wide CNA/LOH/clonal-frequency plots for only those top candidates.
+3. Render/select genome-wide CNA/CNASEG/LOH/LOHSEG/clonal-frequency plots for only those top candidates.
 4. Render/select per-chromosome plots only for the specific chromosomes and candidates that need closer visual inspection (e.g. the two candidates in a ploidy-doubling ambiguity) — not the full per-chromosome set for every candidate.
 
 This selective, staged approach is what keeps the total payload (and API image/token cost) small regardless of whether the source folder is a few MB or 80MB.

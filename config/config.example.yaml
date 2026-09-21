@@ -3,9 +3,19 @@
 #   CLI flag  >  environment variable  >  this file
 #
 # This lets a shared/org key live here while any individual teammate overrides
-# it with their own personal key via ANTHROPIC_API_KEY / GEMINI_API_KEY env vars
-# or --anthropic-key / --gemini-key flags, with no code changes.
+# it with their own personal key via env vars or CLI flags, with no code changes.
 
+# Which reviewer transport to use. "auto" (default) picks perplexity if
+# PERPLEXITY_API_KEY is set anywhere in the resolution chain, else direct.
+backend: "auto"   # auto | direct | perplexity
+
+# ---- Perplexity API backend: one key drives BOTH reviewer roles ----
+perplexity:
+  api_key: ""                                  # or leave blank and use PERPLEXITY_API_KEY env var
+  claude_model: "anthropic/claude-sonnet-5"
+  gemini_model: "google/gemini-3.1-pro-preview"
+
+# ---- Direct provider backend: bring your own Anthropic + Google keys ----
 anthropic:
   api_key: ""            # or leave blank and use ANTHROPIC_API_KEY env var
   model: "claude-sonnet-5"

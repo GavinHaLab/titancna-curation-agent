@@ -6,14 +6,23 @@ import os
 
 import pandas as pd
 
-from .discovery import discover_candidates, find_optimal_cluster_solution
+from .discovery import (
+    discover_candidates_auto,
+    find_optimal_cluster_solution,
+    get_optimal_solution_for_sample,
+)
 from .parsing import parse_params, parse_segs
 
 
-def build_evidence(sample_root: str, sample_id: str, out_dir: str, top_n: int = 5) -> dict:
+def build_evidence(input_path: str, sample_id: str, out_dir: str, top_n: int = 5) -> dict:
+    """input_path may be either a real cohort root (containing
+    titanCNA_ploidyN/ directories -- sample_id selects which sample within
+    it) or a legacy single-sample folder (sample_id is informational only,
+    since the folder itself is the sample)."""
     os.makedirs(out_dir, exist_ok=True)
-    candidates_raw = discover_candidates(sample_root)
-    optimal_file = find_optimal_cluster_solution(sample_root)
+    candidates_raw = discover_candidates_auto(input_path, sample_id)
+    optimal_file = find_optimal_cluster_solution(input_path)
+    optimal_solution_row = get_optimal_solution_for_sample(optimal_file, sample_id)
 
     candidates = []
     for c in candidates_raw:
@@ -60,9 +69,10 @@ def build_evidence(sample_root: str, sample_id: str, out_dir: str, top_n: int = 
 
     evidence = {
         "sample_id": sample_id,
-        "sample_root": os.path.abspath(sample_root),
+        "sample_root": os.path.abspath(input_path),
         "num_candidates_discovered": len(candidates),
         "optimal_cluster_solution_file": optimal_file,
+        "optimal_cluster_solution_raw_row": optimal_solution_row,
         "all_candidates_ranked": ranked,
         "top_candidates_with_segment_metrics": top_candidates,
         "ploidy_doubling_ambiguity_flags": ambiguities,

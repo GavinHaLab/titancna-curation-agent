@@ -13,7 +13,7 @@ import hashlib
 import os
 from typing import Optional
 
-GENOME_WIDE_SUFFIXES = ["CNA", "LOH", "CF", "subclone"]
+GENOME_WIDE_SUFFIXES = ["CNA", "CNASEG", "LOH", "LOHSEG", "CF", "subclone"]
 
 
 def _cache_dir(cache_root: str) -> str:
@@ -53,8 +53,12 @@ def ensure_image(path: str, cache_root: str) -> str:
 
 def find_genome_wide_plot(plot_dir: str, suffix: str, sample_id: str) -> Optional[str]:
     """Find a genome-wide plot file (PDF preferred, else PNG) for one suffix
-    (CNA/LOH/CF/subclone) inside a candidate's plot directory. Handles both
-    zero-padded (_cluster01_) and unpadded (_cluster1_) naming."""
+    (CNA/CNASEG/LOH/LOHSEG/CF/subclone) inside a candidate's plot directory.
+    CNASEG/LOHSEG are the segmented/annotated variants of the CNA/LOH plots
+    and carry richer visual detail (called segments overlaid on the raw
+    signal) -- treat them as equally primary evidence, not a substitute for
+    the raw CNA/LOH plots. Handles both zero-padded (_cluster01_) and
+    unpadded (_cluster1_) naming."""
     patterns = [
         os.path.join(plot_dir, f"*_{suffix}.pdf"),
         os.path.join(plot_dir, f"*_{suffix}.png"),
