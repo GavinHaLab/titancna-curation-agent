@@ -248,3 +248,25 @@ review of anything flagged.
   `titanCNA_ploidyN/` directories and (for a single sample) only files
   matching that sample's name via `glob.escape`, so cost scales with cohort
   size only for the initial directory listing, not per-file reads.
+- **`titan-curate` seems to ignore packages/env changes in your active conda
+  env** (e.g. "no module named X" for a package you just installed with
+  `pip install ...` inside the env, or API keys that were correctly
+  `source`d yet still report missing) — the installed `titan-curate` script
+  has a shebang line pinned to whichever Python ran `pip install -e .` at
+  install time, which is **not necessarily** the `python3` currently on your
+  `PATH`. This happens silently if `pip install -e .` was ever run from the
+  wrong active env (or fell back to a `--user` install under a base/module
+  Python because the env's own site-packages wasn't writable — watch for
+  "Defaulting to user installation because normal site-packages is not
+  writeable" in the pip output). Diagnose with:
+  ```bash
+  which titan-curate
+  head -1 "$(which titan-curate)"        # the interpreter it actually runs under
+  which python3                          # what your active env resolves to
+  ```
+  If those two interpreters differ, `titan-curate` is running under a
+  different environment than the one you're inspecting with `pip
+  show`/`python3 -c "import ..."`. Fix by reinstalling from inside the
+  correct, already-activated env (`conda activate titan-curate && cd
+  titancna-curation-agent && pip install -e ".[perplexity]"`), which
+  overwrites the console script with one pinned to that env's interpreter.
