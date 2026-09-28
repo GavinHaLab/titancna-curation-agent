@@ -233,6 +233,21 @@ review of anything flagged.
 - **`ModuleNotFoundError: No module named 'perplexity'`** — you installed with
   a plain `pip install -e .` instead of `pip install -e ".[perplexity]"` (or
   `.[all]`). Re-run the install with the extra.
+- **`pip install -e .` fails compiling PyMuPDF from source** (C++ errors
+  mentioning `mupdfcpp_swig`, `PyString_FromString was not declared`, or
+  a long `c++ ... -o platform/python/mupdfcpp_swig...cpp.o` command failing)
+  — this means pip couldn't find a prebuilt wheel for your platform (most
+  likely an HPC login/compute node with an older glibc than PyMuPDF's
+  current manylinux wheel baseline requires) and fell back to building
+  from source, which then hits a real upstream bug in that mupdf source
+  release. `pyproject.toml` now pins `PyMuPDF<1.28` to avoid the specific
+  broken release, so a fresh `git pull` + reinstall should fix it. If it
+  still tries to build from source: (1) run `pip install --upgrade pip`
+  first — an old pip can fail to recognize a wheel that would otherwise
+  work; (2) check `ldd --version` on the node — a very old glibc may mean
+  no PyMuPDF wheel exists for your platform at all, in which case ask your
+  cluster admin for a newer OS/compute-node image or a module with a newer
+  system Python.
 - **Auth errors from the Perplexity API** — confirm `echo $PERPLEXITY_API_KEY`
   is non-empty in the job's environment; `source`d env files inside a SLURM
   script only take effect if `source` runs before the `titan-curate` call, and

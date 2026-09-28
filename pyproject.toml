@@ -11,7 +11,14 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "pandas>=2.0",
-    "PyMuPDF>=1.23",
+    # Upper bound excludes 1.28.x: its mupdf-1.28.2 sdist has a confirmed
+    # upstream build bug (dead code still calls the Python-2-only
+    # PyString_FromString, which doesn't exist in Python 3 and fails to
+    # compile) -- see https://github.com/pymupdf/PyMuPDF/discussions/2394.
+    # Only bites systems without a prebuilt wheel for their platform (e.g.
+    # an HPC node with an older glibc than PyMuPDF's current manylinux
+    # baseline requires), where pip falls back to building from source.
+    "PyMuPDF>=1.23,<1.28",
     "Pillow>=10.0",
     "PyYAML>=6.0",
 ]
