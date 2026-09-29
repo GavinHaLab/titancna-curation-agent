@@ -240,13 +240,24 @@ review of anything flagged.
   likely an HPC login/compute node with an older glibc than PyMuPDF's
   current manylinux wheel baseline requires) and fell back to building
   from source, which then hits a real upstream bug in that mupdf source
-  release. `pyproject.toml` now pins `PyMuPDF<1.28` to avoid the specific
-  broken release, so a fresh `git pull` + reinstall should fix it. If it
-  still tries to build from source: (1) run `pip install --upgrade pip`
-  first — an old pip can fail to recognize a wheel that would otherwise
-  work; (2) check `ldd --version` on the node — a very old glibc may mean
-  no PyMuPDF wheel exists for your platform at all, in which case ask your
-  cluster admin for a newer OS/compute-node image or a module with a newer
+  release. Reproduced and confirmed on the Fred Hutch rhino nodes
+  (glibc 2.27/Ubuntu 18.04-based): `pip install --only-binary=:all: pymupdf`
+  shows **1.26.0 is the last PyMuPDF release with a wheel compatible with
+  that glibc** — every version from 1.26.1 up (including the whole 1.27.x/
+  1.28.x line) is source-only or needs a newer manylinux baseline there, so
+  a plain `pip install "PyMuPDF<1.28"` still picks the newest matching
+  version (1.27.2) first and fails the same way. `pyproject.toml` now pins
+  `PyMuPDF<=1.26.0`, verified with a full clean install (pip 23.2.1,
+  same rhino environment) that resolves straight to the `1.26.0` wheel with
+  zero compilation. A fresh `git pull` + reinstall should fix it. If it
+  still tries to build from source on a *different* cluster/platform:
+  (1) run `pip install --upgrade pip` first — an old pip can fail to
+  recognize a wheel that would otherwise work; (2) run
+  `pip install --only-binary=:all: "pymupdf<=1.26.0"` to see directly
+  whether a compatible wheel exists there at all; (3) check `ldd --version`
+  — a very old glibc may mean no PyMuPDF wheel exists for your platform,
+  in which case ask your cluster admin for a newer OS/compute-node image or
+  a module with a newer
   system Python.
 - **Auth errors from the Perplexity API** — confirm `echo $PERPLEXITY_API_KEY`
   is non-empty in the job's environment; `source`d env files inside a SLURM

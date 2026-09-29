@@ -11,14 +11,21 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "pandas>=2.0",
-    # Upper bound excludes 1.28.x: its mupdf-1.28.2 sdist has a confirmed
-    # upstream build bug (dead code still calls the Python-2-only
-    # PyString_FromString, which doesn't exist in Python 3 and fails to
-    # compile) -- see https://github.com/pymupdf/PyMuPDF/discussions/2394.
-    # Only bites systems without a prebuilt wheel for their platform (e.g.
-    # an HPC node with an older glibc than PyMuPDF's current manylinux
-    # baseline requires), where pip falls back to building from source.
-    "PyMuPDF>=1.23,<1.28",
+    # Upper bound pinned to <=1.26.0, reproduced empirically on this cluster
+    # (rhino, glibc 2.27/Ubuntu 18.04-based): `pip install --only-binary=:all:
+    # pymupdf` shows 1.26.0 is the LAST release with a manylinux wheel
+    # compatible with this glibc -- every version from 1.26.1 through the
+    # current 1.28.x line ships source-only (or a newer-manylinux-only wheel
+    # this glibc can't use), so a plain `pip install` picks the newest
+    # matching version first and falls back to building it from source.
+    # That source build then hits a real upstream bug (mupdf's SWIG output
+    # still calls the Python-2-only PyString_FromString, which doesn't exist
+    # in Python 3 and fails to compile -- confirmed present in at least
+    # mupdf-1.27.2 and mupdf-1.28.2's sdists, see
+    # https://github.com/pymupdf/PyMuPDF/discussions/2394). <1.28 alone is
+    # NOT enough -- confirmed it still resolves to the source-only 1.27.2 and
+    # fails the same way. <=1.26.0 guarantees pip lands on a wheel instead.
+    "PyMuPDF>=1.23,<=1.26.0",
     "Pillow>=10.0",
     "PyYAML>=6.0",
 ]
