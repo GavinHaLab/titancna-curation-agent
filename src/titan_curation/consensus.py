@@ -2,7 +2,39 @@
 from __future__ import annotations
 
 import csv
+import fcntl
 import os
+
+
+def _upsert_cohort_csv_row(out_csv: str, row: dict) -> None:
+    """Write/replace this sample's row in the shared cohort CSV, keeping at
+    most one row per sample_id (a rerun of a sample -- common given transient
+    429s/segfaults/etc -- replaces its old row instead of appending a
+    duplicate). Safe under concurrent writers (e.g. a SLURM array job with
+    many tasks writing the same --cohort-csv): the whole read-filter-rewrite
+    cycle happens under an exclusive flock on the file, so concurrent
+    processes serialize instead of racing each other's rewrites."""
+    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
+    fieldnames = list(row.keys())
+
+    # Open for read+write, creating if needed, without truncating -- so the
+    # lock can be taken before we know whether the file already has content.
+    with open(out_csv, "a+", newline="") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            f.seek(0)
+            existing_rows = list(csv.DictReader(f))
+            sample_id = row["sample_id"]
+            existing_rows = [r for r in existing_rows if r.get("sample_id") != sample_id]
+            existing_rows.append(row)
+
+            f.seek(0)
+            f.truncate()
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            w.writerows(existing_rows)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_csv: str) -> dict:
@@ -44,13 +76,7 @@ def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_cs
         "status": status,
     }
 
-    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
-    write_header = not os.path.exists(out_csv)
-    with open(out_csv, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(row.keys()))
-        if write_header:
-            w.writeheader()
-        w.writerow(row)
+    _upsert_cohort_csv_row(out_csv, row)
 
     lines = []
     lines.append(f"# TITAN Curation Report -- {sample_id}\n")
