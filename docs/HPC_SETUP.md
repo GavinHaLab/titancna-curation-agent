@@ -31,12 +31,34 @@ module or (more reproducibly) create your own conda/mamba environment:
 ```bash
 # Option A: environment module (check `module avail python` for exact name/version)
 module load Python/3.11.5-GCCcore-13.2.0
+unset PYTHONPATH        # see warning below -- required
+python3 -m venv ~/.venvs/titan-curate
+source ~/.venvs/titan-curate/bin/activate
 
 # Option B: your own conda/mamba environment (recommended for a pinned, portable setup)
 module load Miniconda3
 conda create -n titan-curate python=3.11 -y
 conda activate titan-curate
 ```
+
+**With Option A, always create and activate a venv (as shown above) — do
+not just `pip install --user` directly against the module's Python.**
+Loading a Python module sets `PYTHONPATH` to that module's own
+site-packages, which (a) silently shadows any `pip install --user` package
+of the same name with the module's own bundled version, no matter how
+recent a version you install, and (b) even survives inside a *plain*
+`python3 -m venv`, defeating its isolation, unless `PYTHONPATH` is unset
+first. We hit both failure modes for real on these nodes: an old bundled
+`typing_extensions` (missing `Sentinel`, needed by pydantic) shadowed a
+newer `--user`-installed one and broke imports; separately, installing into
+the shared `~/.local` (which on a long-lived account accumulates many
+unrelated heavy packages -- torch, cudf, numba, etc. -- each with their own
+bundled native libraries) caused a real segfault
+(`Relink ... librt.so.1 for IFUNC symbol clock_gettime`) loading
+`pydantic_core`'s compiled extension, that disappeared entirely once
+installed into a clean, isolated venv instead. `unset PYTHONPATH` + a venv
+fixes both at once by fully isolating from both the module's bundled
+packages and your account's shared `~/.local`.
 
 ## 3. Install the package
 
@@ -141,7 +163,13 @@ logged and skipped rather than aborting the run:
 set -euo pipefail
 cd /fh/fast/ha_g/user/$USER/titan_curation/titancna-curation-agent
 source ~/.titan_curate.env
-module load Python/3.11.5-GCCcore-13.2.0   # or `conda activate titan-curate`
+# Option A (module + venv, see step 2) -- MUST unset PYTHONPATH before
+# activating the venv, or the module's own site-packages silently shadows
+# your installed packages / breaks isolation (see step 2 for why):
+module load Python/3.11.5-GCCcore-13.2.0
+unset PYTHONPATH
+source ~/.venvs/titan-curate/bin/activate
+# Option B: `conda activate titan-curate` instead of the three lines above
 
 titan-curate run \
   --input /fh/fast/ha_g/projects/ProstateTAN/ProstateTAN2026/data/Tumor/TITAN/all/TITAN_all_tan_1/titan/hmm \
@@ -175,6 +203,8 @@ set -euo pipefail
 cd /fh/fast/ha_g/user/$USER/titan_curation/titancna-curation-agent
 source ~/.titan_curate.env
 module load Python/3.11.5-GCCcore-13.2.0
+unset PYTHONPATH
+source ~/.venvs/titan-curate/bin/activate   # or `conda activate titan-curate`
 
 COHORT_ROOT=/fh/fast/ha_g/projects/ProstateTAN/ProstateTAN2026/data/Tumor/TITAN/all/TITAN_all_tan_1/titan/hmm
 OUT_ROOT=/fh/fast/ha_g/user/$USER/titan_curation/results
@@ -233,6 +263,24 @@ review of anything flagged.
 - **`ModuleNotFoundError: No module named 'perplexity'`** — you installed with
   a plain `pip install -e .` instead of `pip install -e ".[perplexity]"` (or
   `.[all]`). Re-run the install with the extra.
+- **`ImportError: cannot import name 'Sentinel' from 'typing_extensions'`**
+  (Option A, environment module) — the module's own bundled
+  `typing_extensions` is older than pydantic needs, and it silently shadows
+  any newer version you `pip install --user`, because loading the module
+  sets `PYTHONPATH` to point at its site-packages ahead of `~/.local`. Fix:
+  `unset PYTHONPATH` after `module load` and install into a venv, as shown
+  in step 2 — reinstalling with `pip install --user` alone will NOT fix
+  this even if it appears to succeed.
+- **Segfault (`core dumped`) partway through a run**, especially with a
+  `Relink ... for IFUNC symbol` line right before the crash — this is glibc
+  failing to safely load a compiled extension (commonly `pydantic_core`'s
+  `.so`) because of a conflicting native library elsewhere on the loader
+  path. We saw this specifically when installing into the shared `~/.local`
+  on an account that also has many unrelated heavy packages installed
+  (torch, cudf, numba, etc., each bundling their own native libraries) — the
+  exact same `pydantic_core` version worked perfectly in an isolated venv.
+  Fix: install into a clean venv (step 2's Option A), not `--user`/`~/.local`
+  directly.
 - **`pip install -e .` fails compiling PyMuPDF from source** (C++ errors
   mentioning `mupdfcpp_swig`, `PyString_FromString was not declared`, or
   a long `c++ ... -o platform/python/mupdfcpp_swig...cpp.o` command failing)
