@@ -32,8 +32,18 @@ import base64
 import io
 import json
 import re
+import sys
+import time
 
 from .base import build_system_prompt, build_user_text
+
+# Retry budget for HTTP 429 (rate limit exceeded). Batch mode makes several
+# of these calls back to back across samples/reviewer roles; a burst/window
+# limit on the account can trip even at a low nominal QPS. Retries with
+# exponential backoff, honoring the API's Retry-After header when present,
+# rather than failing the whole sample on a transient rate limit.
+MAX_RATE_LIMIT_RETRIES = 6
+RATE_LIMIT_BACKOFF_BASE_SECONDS = 10
 
 # anthropic/* models on this endpoint spend a large chunk of max_output_tokens
 # on internal reasoning before emitting the final JSON -- observed 6213
@@ -98,6 +108,21 @@ def _response_text(response) -> str:
     return "\n".join(text_parts)
 
 
+def _rate_limit_wait_seconds(e, attempt: int) -> float:
+    """Prefer the server's own Retry-After header; fall back to exponential
+    backoff (10s, 20s, 40s, ...) if it's absent or unparseable."""
+    response = getattr(e, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers:
+        retry_after = headers.get("retry-after") or headers.get("Retry-After")
+        if retry_after:
+            try:
+                return max(float(retry_after), 1.0)
+            except ValueError:
+                pass
+    return RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** attempt)
+
+
 def review(
     evidence: dict,
     top_candidates: list[dict],
@@ -132,22 +157,34 @@ def review(
             "list to send fewer images."
         )
 
-    try:
-        response = client.responses.create(
-            model=model,
-            instructions=system_prompt,
-            input=[{"type": "message", "role": "user", "content": content}],
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-            stream=False,
-        )
-    except APIStatusError as e:
-        # Surface the server's actual error body (e.g. "model not found",
-        # "payload too large", "unsupported image count") instead of the
-        # generic "invalid request" summary the SDK exception __str__ shows.
-        body = getattr(e, "body", None) or getattr(getattr(e, "response", None), "text", None)
-        raise RuntimeError(
-            f"Perplexity API HTTP {e.status_code} for model={model!r}: {body}"
-        ) from e
+    response = None
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            response = client.responses.create(
+                model=model,
+                instructions=system_prompt,
+                input=[{"type": "message", "role": "user", "content": content}],
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+                stream=False,
+            )
+            break
+        except APIStatusError as e:
+            if e.status_code == 429 and attempt < MAX_RATE_LIMIT_RETRIES:
+                wait = _rate_limit_wait_seconds(e, attempt)
+                print(
+                    f"    Perplexity rate limit (429) for model={model!r}, "
+                    f"retrying in {wait}s (attempt {attempt + 1}/{MAX_RATE_LIMIT_RETRIES}) ...",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+                continue
+            # Surface the server's actual error body (e.g. "model not found",
+            # "payload too large", "unsupported image count") instead of the
+            # generic "invalid request" summary the SDK exception __str__ shows.
+            body = getattr(e, "body", None) or getattr(getattr(e, "response", None), "text", None)
+            raise RuntimeError(
+                f"Perplexity API HTTP {e.status_code} for model={model!r}: {body}"
+            ) from e
 
     # response.output_text is unreliable here -- it can come back empty even
     # when response.output[] clearly holds the model's text. Cause: this SDK
