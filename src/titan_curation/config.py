@@ -11,7 +11,7 @@ happen to be set:
   GEMINI_API_KEY (the original design).
 - "perplexity": call BOTH reviewer roles through a single PERPLEXITY_API_KEY
   via Perplexity's Agent API, using provider/model ids
-  (anthropic/claude-sonnet-5, google/gemini-3.1-pro-preview by default).
+  (anthropic/claude-sonnet-5-5, google/gemini-3.1-pro-preview by default).
 
 "auto" (the default) picks "perplexity" if PERPLEXITY_API_KEY is set, else
 falls back to "direct".
@@ -25,7 +25,7 @@ from typing import Optional
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 DEFAULT_GEMINI_MODEL = "gemini-3.1-pro"
 
-DEFAULT_PERPLEXITY_CLAUDE_MODEL = "anthropic/claude-sonnet-5"
+DEFAULT_PERPLEXITY_CLAUDE_MODEL = "anthropic/claude-sonnet-5-5"
 DEFAULT_PERPLEXITY_GEMINI_MODEL = "google/gemini-3.1-pro-preview"
 
 

@@ -5,7 +5,7 @@ only a `PERPLEXITY_API_KEY` (no separate Anthropic/Google keys) run the same
 two-reviewer methodology, by pointing the same call at two different
 `provider/model` IDs:
 
-  - Claude role: model="anthropic/claude-sonnet-5" (or any anthropic/* id)
+  - Claude role: model="anthropic/claude-sonnet-5-5" (or any anthropic/* id)
   - Gemini role: model="google/gemini-3.1-pro-preview" (or any google/* id)
 
 Reference: https://docs.perplexity.ai/docs/agent-api/image-attachments and

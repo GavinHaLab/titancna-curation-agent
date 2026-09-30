@@ -61,7 +61,7 @@ titan-curate run --input ... --sample <name> --backend perplexity
 ```
 
 This calls Perplexity's Agent API once per reviewer role, pointed at
-`anthropic/claude-sonnet-5` for the "claude_sonnet" role and
+`anthropic/claude-sonnet-5-5` for the "claude_sonnet" role and
 `google/gemini-3.1-pro-preview` for the "gemini" role by default (override with
 `--perplexity-claude-model` / `--perplexity-gemini-model` or the matching env
 vars). Full setup walkthrough: [`docs/HPC_SETUP.md`](docs/HPC_SETUP.md).

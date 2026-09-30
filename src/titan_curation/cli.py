@@ -266,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--perplexity-key", default=None, help="Overrides PERPLEXITY_API_KEY env var")
     run.add_argument("--perplexity-claude-model", default=None,
                       help="Perplexity provider/model id for the Claude reviewer role "
-                           "(default: anthropic/claude-sonnet-5)")
+                           "(default: anthropic/claude-sonnet-5-5)")
     run.add_argument("--perplexity-gemini-model", default=None,
                       help="Perplexity provider/model id for the Gemini reviewer role "
                            "(default: google/gemini-3.1-pro-preview)")
