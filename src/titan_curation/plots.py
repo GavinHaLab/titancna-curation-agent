@@ -35,8 +35,18 @@ def render_pdf_to_png(pdf_path: str, cache_root: str, dpi: int = 130, page: int 
     pg = doc.load_page(page)
     zoom = dpi / 72.0
     pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-    pix.save(out_path)
     doc.close()
+
+    # Render to a unique per-process temp file, then atomically move it into
+    # place -- avoids a race where a concurrent process (e.g. two batch runs
+    # against the same --out-root, or a stale directory-listing cache on a
+    # networked filesystem like NFS) causes two writers to target the same
+    # cache path at once. PyMuPDF's pix.save() errors ("cannot open file ...
+    # File exists") rather than overwriting if the destination appears
+    # mid-write; os.replace() never has that failure mode.
+    tmp_path = os.path.join(_cache_dir(cache_root), f"{h}.tmp.{os.getpid()}.png")
+    pix.save(tmp_path)
+    os.replace(tmp_path, out_path)
     return out_path
 
 
