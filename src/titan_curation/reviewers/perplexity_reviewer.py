@@ -236,8 +236,14 @@ def review(
     try:
         return _extract_json(text)
     except json.JSONDecodeError as e:
+        # "likely truncated by max_output_tokens" was previously a guess --
+        # this branch never actually checked whether the response was
+        # reported incomplete. Surface the real status/incomplete_details
+        # (same fields the "no output text" branch above already reports)
+        # so a short/malformed JSON can be diagnosed instead of assumed.
         raise RuntimeError(
-            f"Perplexity output was not valid JSON ({e}) -- likely truncated "
-            f"by max_output_tokens ({MAX_OUTPUT_TOKENS}). Output was "
-            f"{len(text)} chars, ending: {text[-300:]!r}"
+            f"Perplexity output was not valid JSON ({e}). "
+            f"status={getattr(response, 'status', None)!r}, "
+            f"incomplete_details={getattr(response, 'incomplete_details', None)!r}. "
+            f"Output was {len(text)} chars, full text: {text!r}"
         ) from e
