@@ -4,37 +4,53 @@ from __future__ import annotations
 import csv
 import fcntl
 import os
+import threading
+
+# Guards _upsert_cohort_csv_row against concurrent calls from this process's
+# own threads (cli.py's --workers uses a ThreadPoolExecutor -- all workers
+# share one process). This is required IN ADDITION to the flock below, not
+# instead of it: flock() on a networked filesystem (this writes to NFS-
+# mounted paths in practice) is not reliably serializing concurrent access
+# in all configurations -- confirmed empirically, a real --workers 3 run
+# lost 46 of 51 completed samples' rows from the cohort CSV (only the last
+# few writers' rows survived a lost-update race) despite the flock. A
+# plain in-process Lock is unconditionally correct for same-process threads
+# regardless of what the underlying filesystem does with flock, and costs
+# nothing extra for the separate-process case (SLURM array jobs), where
+# flock remains the only (best-effort) protection.
+_CSV_LOCK = threading.Lock()
 
 
 def _upsert_cohort_csv_row(out_csv: str, row: dict) -> None:
     """Write/replace this sample's row in the shared cohort CSV, keeping at
     most one row per sample_id (a rerun of a sample -- common given transient
     429s/segfaults/etc -- replaces its old row instead of appending a
-    duplicate). Safe under concurrent writers (e.g. a SLURM array job with
-    many tasks writing the same --cohort-csv): the whole read-filter-rewrite
-    cycle happens under an exclusive flock on the file, so concurrent
-    processes serialize instead of racing each other's rewrites."""
+    duplicate). Safe under concurrent writers from the same process (e.g.
+    `--workers N`'s thread pool -- see _CSV_LOCK above) and, best-effort,
+    across processes (e.g. a SLURM array job with many tasks writing the
+    same --cohort-csv) via an exclusive flock."""
     os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
     fieldnames = list(row.keys())
 
-    # Open for read+write, creating if needed, without truncating -- so the
-    # lock can be taken before we know whether the file already has content.
-    with open(out_csv, "a+", newline="") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            f.seek(0)
-            existing_rows = list(csv.DictReader(f))
-            sample_id = row["sample_id"]
-            existing_rows = [r for r in existing_rows if r.get("sample_id") != sample_id]
-            existing_rows.append(row)
+    with _CSV_LOCK:
+        # Open for read+write, creating if needed, without truncating -- so
+        # the lock can be taken before we know whether the file has content.
+        with open(out_csv, "a+", newline="") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                f.seek(0)
+                existing_rows = list(csv.DictReader(f))
+                sample_id = row["sample_id"]
+                existing_rows = [r for r in existing_rows if r.get("sample_id") != sample_id]
+                existing_rows.append(row)
 
-            f.seek(0)
-            f.truncate()
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
-            w.writerows(existing_rows)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+                f.seek(0)
+                f.truncate()
+                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerows(existing_rows)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_csv: str) -> dict:

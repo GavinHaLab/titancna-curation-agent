@@ -1,6 +1,7 @@
 import csv
 import multiprocessing
 import os
+import threading
 
 from titan_curation.consensus import _upsert_cohort_csv_row
 
@@ -70,3 +71,34 @@ def test_upsert_concurrent_writers_no_lost_updates(tmp_path):
     sample_ids = [r["sample_id"] for r in rows]
     assert len(sample_ids) == n
     assert len(set(sample_ids)) == n  # no duplicates, no lost writes
+
+
+def test_upsert_concurrent_threads_no_lost_updates(tmp_path):
+    """Regression test for a real data-loss bug: cli.py's --workers uses a
+    ThreadPoolExecutor, so in production the concurrent writers are THREADS
+    in one process, not separate processes -- a materially different
+    pattern from test_upsert_concurrent_writers_no_lost_updates above (which
+    uses multiprocessing.Process). A real --workers 3 run against an
+    NFS-mounted --out-root lost 46 of 51 completed samples' rows (only the
+    last few writers' rows survived) despite the flock in
+    _upsert_cohort_csv_row -- flock() is not reliably serializing concurrent
+    access on that filesystem. Fixed with an in-process threading.Lock()
+    that is unconditionally correct regardless of what the filesystem does
+    with flock. This test uses real threads (not multiprocessing) to match
+    the actual production concurrency pattern."""
+    out_csv = str(tmp_path / "cohort.csv")
+    n = 20
+    threads = [
+        threading.Thread(target=_worker, args=(out_csv, f"sample_{i}"))
+        for i in range(n)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+        assert not t.is_alive()
+
+    rows = _read_rows(out_csv)
+    sample_ids = [r["sample_id"] for r in rows]
+    assert len(sample_ids) == n, f"expected {n} rows, got {len(sample_ids)} -- lost writes"
+    assert len(set(sample_ids)) == n  # no duplicates either
