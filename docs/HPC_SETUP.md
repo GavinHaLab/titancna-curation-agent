@@ -177,12 +177,18 @@ titan-curate run \
   --out-root /fh/fast/ha_g/user/$USER/titan_curation/results \
   --cohort-csv /fh/fast/ha_g/user/$USER/titan_curation/results/cohort_titan_curation_summary.csv \
   --backend perplexity \
-  --verbose-errors
+  --verbose-errors \
+  --skip-existing
 ```
 
 Submit with `sbatch run_batch.sh`. Swap `--all-samples` for
 `--sample-list-file samples.txt` (one sample name per line) to run a curated
 subset instead.
+
+`--skip-existing` makes this submission safe to resubmit as-is after a
+partial failure (transient API errors, a node getting pre-empted, etc.) —
+any sample that already has a full curation report under `--out-root` is
+skipped instead of re-running (and re-billing) it.
 
 ## 7. Batch: SLURM array job for real parallelism across many samples
 
@@ -231,11 +237,29 @@ wc -l samples.txt   # size --array=0-<N-1> to this count
 sbatch run_array.sh
 ```
 
-Because every task appends to the same `--cohort-csv`, avoid launching an
-enormous number of tasks that finish at the exact same instant if your
-cluster's shared filesystem is sensitive to concurrent small appends;
-staggering (`--array=0-99%10` limits to 10 concurrent tasks) is a safe
-default on Fred Hutch's `/fh/fast` storage.
+Every task writes/updates its own row in the same shared `--cohort-csv`
+under an exclusive file lock (`flock`), so concurrent tasks serialize safely
+instead of racing each other's writes or producing duplicate rows on a
+rerun — verified directly with 20 real concurrent processes writing the
+same file. No need to artificially limit concurrency for this reason; size
+`--array` and any `%N` throttling based on your cluster's actual job-slot
+or API-rate-limit constraints instead.
+
+**Resuming after a partial failure:** rerunning the same `sbatch` submission
+(or `sbatch --array=<failed task indices>`) re-runs every task from scratch
+by default, including both reviewer API calls, even for samples that already
+completed. Add `--skip-existing` to the `titan-curate run` call so each task
+skips cleanly (no API cost) if its sample's report already exists:
+
+```bash
+titan-curate run \
+  --input "$COHORT_ROOT" \
+  --sample "$SAMPLE" \
+  --out-root "$OUT_ROOT" \
+  --cohort-csv "$COHORT_CSV" \
+  --backend perplexity \
+  --skip-existing
+```
 
 ## 8. Checking results
 

@@ -137,12 +137,38 @@ Useful flags:
 --backend {auto,direct,perplexity}             # reviewer transport (default auto)
 --cohort-csv results/cohort_titan_curation_summary.csv   # shared append target across samples
 --verbose-errors           # full tracebacks for per-sample failures in batch mode
+--skip-existing             # batch mode: skip a sample if its report already exists (resume a rerun for free)
+--temperature 0             # sampling temperature, both reviewer roles, either backend (default: API default, 1.0)
+--reasoning-effort low       # Perplexity backend only: minimal|low|medium|high|xhigh (default: API default)
 ```
 
 In batch mode (`--samples`/`--sample-list-file`/`--all-samples`) a failure on
 one sample is logged and skipped — it does not abort the rest of the batch.
 Every sample still writes its own `results/<sample_id>/` folder, and every
-successful consensus row is appended to the same `--cohort-csv`.
+successful consensus row is appended to the same `--cohort-csv` (re-running
+the same sample — e.g. after fixing a transient failure — replaces its row
+rather than duplicating it).
+
+**Resuming a batch after a partial failure:** rerunning `--all-samples` always
+re-runs every sample from scratch by default, including both reviewer API
+calls, even for samples that already completed. Add `--skip-existing` to skip
+any sample whose `<out-root>/<sample_id>/reports/*_curation_report.md`
+already exists, so a rerun only pays for the samples that actually failed:
+
+```bash
+titan-curate run --input /fh/fast/ha_g/.../titan/hmm \
+  --all-samples --out-root results --skip-existing
+```
+
+**Reducing run-to-run variance and Claude's output-token cost:** `--temperature
+0` makes both reviewer roles more consistent across reruns of the same sample
+(not perfectly deterministic — reasoning traces and backend routing still
+introduce some variance even at 0). On the Perplexity backend,
+`--reasoning-effort low` (or `minimal`) cuts `anthropic/*` models' reasoning-
+token spend substantially — this is the dominant cost driver for the Claude
+role (observed 6000-8000 reasoning tokens per call at the API's default
+effort, before any of the visible comment/JSON text is produced), at the
+cost of potentially shallower analysis.
 
 Run `--dry-run` first on any new dataset to sanity-check discovery/parsing
 before spending API calls.
