@@ -43,13 +43,13 @@ def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_cs
     raw_top = ranked[0]
     top_n = evidence["top_candidates_with_segment_metrics"]
 
-    consensus_agree = claude["recommended_candidate_id"] == gemini["recommended_candidate_id"]
-    consensus_candidate = claude["recommended_candidate_id"] if consensus_agree else None
-    human_review = bool(claude.get("human_review_needed")) or bool(gemini.get("human_review_needed"))
-
-    status = "Consensus" if consensus_agree else "Discordant review"
-    if human_review:
-        status += " -- human review recommended"
+    # Consensus requires all three to agree: the raw TITAN S_Dbw optimum AND
+    # both independent reviewers. Any one of the three differing is Discordant.
+    consensus_agree = (
+        raw_top["candidate_id"] == claude["recommended_candidate_id"] == gemini["recommended_candidate_id"]
+    )
+    consensus_candidate = raw_top["candidate_id"] if consensus_agree else None
+    status = "Consensus" if consensus_agree else "Discordant"
 
     row = {
         "sample_id": sample_id,
@@ -60,19 +60,16 @@ def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_cs
         "claude_candidate": claude["recommended_candidate_id"],
         "claude_ploidy": claude["recommended_ploidy"],
         "claude_purity": claude["recommended_titan_purity"],
-        "claude_confidence": claude.get("confidence"),
         "claude_overrides_raw": claude.get("overrides_raw_titan_optimal"),
         "claude_comment": (claude.get("comment") or "").replace("\n", " ")[:600],
         "gemini_candidate": gemini["recommended_candidate_id"],
         "gemini_ploidy": gemini["recommended_ploidy"],
         "gemini_purity": gemini["recommended_titan_purity"],
-        "gemini_confidence": gemini.get("confidence"),
         "gemini_overrides_raw": gemini.get("overrides_raw_titan_optimal"),
         "gemini_comment": (gemini.get("comment") or "").replace("\n", " ")[:600],
         "consensus_candidate": consensus_candidate or "DISCORDANT",
-        "consensus_ploidy": claude["recommended_ploidy"] if consensus_agree else "",
-        "consensus_purity": claude["recommended_titan_purity"] if consensus_agree else "",
-        "human_review_needed": human_review,
+        "consensus_ploidy": raw_top["ploidy"] if consensus_agree else "",
+        "consensus_purity": raw_top["titan_purity"] if consensus_agree else "",
         "status": status,
     }
 
@@ -114,11 +111,9 @@ def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_cs
     lines.append("")
 
     lines.append("## Reviewer comments\n")
-    lines.append(f"### Claude ({claude.get('confidence')} confidence, "
-                  f"overrides raw optimum: {claude.get('overrides_raw_titan_optimal')})\n")
+    lines.append(f"### Claude (overrides raw optimum: {claude.get('overrides_raw_titan_optimal')})\n")
     lines.append((claude.get("comment") or "") + "\n")
-    lines.append(f"### Gemini ({gemini.get('confidence')} confidence, "
-                  f"overrides raw optimum: {gemini.get('overrides_raw_titan_optimal')})\n")
+    lines.append(f"### Gemini (overrides raw optimum: {gemini.get('overrides_raw_titan_optimal')})\n")
     lines.append((gemini.get("comment") or "") + "\n")
 
     lines.append("## Flags\n")
@@ -132,13 +127,15 @@ def build_report(evidence: dict, claude: dict, gemini: dict, out_md: str, out_cs
         lines.append("No flags raised.")
     lines.append("")
 
-    lines.append("## Human review focus\n")
-    for item in claude.get("human_review_focus", []) or []:
-        lines.append(f"- (Claude) {item}")
-    for item in gemini.get("human_review_focus", []) or []:
-        lines.append(f"- (Gemini) {item}")
-    lines.append("")
-    lines.append(f"**Overall human review needed: {'Yes' if human_review else 'No'}**\n")
+    human_review_focus_items = (
+        [("Claude", item) for item in (claude.get("human_review_focus") or [])]
+        + [("Gemini", item) for item in (gemini.get("human_review_focus") or [])]
+    )
+    if human_review_focus_items:
+        lines.append("## Human review focus\n")
+        for reviewer, item in human_review_focus_items:
+            lines.append(f"- ({reviewer}) {item}")
+        lines.append("")
 
     os.makedirs(os.path.dirname(out_md) or ".", exist_ok=True)
     with open(out_md, "w") as f:
