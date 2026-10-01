@@ -261,6 +261,21 @@ titan-curate run \
   --skip-existing
 ```
 
+**Consolidating the per-task logs:** an array job produces one log file per
+sample (`logs/titan_curate_<jobid>_<array_index>.log`), which gets unwieldy
+at scale. Each task writing to one *shared* log file directly isn't safe --
+concurrent processes interleaving multi-line output into the same file risks
+mangled lines -- so instead, run `scripts/consolidate_array_logs.sh` once the
+job finishes to concatenate them (sorted by array index, not alphabetically,
+so task 10 sorts after task 9) into a single combined log:
+
+```bash
+scripts/consolidate_array_logs.sh logs   # writes logs/titan_curate_combined.log
+```
+
+Pass a second argument to control the output path:
+`scripts/consolidate_array_logs.sh logs /fh/fast/ha_g/user/$USER/titan_curation/combined.log`.
+
 ## 8. Checking results
 
 ```

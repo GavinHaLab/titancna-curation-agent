@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import resolve_config
 from .consensus import build_report
@@ -208,18 +209,36 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     results = []
     failures = []
-    for sample_id in sample_ids:
-        try:
-            results.append(_run_one_sample(args.input, sample_id, args, cfg, knowledge_dir, cohort_csv))
-        except Exception as e:
-            label = sample_id or os.path.basename(os.path.normpath(args.input))
-            print(f"\n[FAILED] {label}: {e}", file=sys.stderr)
-            if args.verbose_errors:
-                traceback.print_exc()
-            failures.append({"sample_id": label, "error": str(e)})
-            if not is_batch:
-                return 1
-            continue
+    if is_batch and args.workers > 1:
+        print(f"Running with {args.workers} concurrent workers -- per-sample log lines will interleave.")
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            future_to_sample = {
+                executor.submit(_run_one_sample, args.input, sample_id, args, cfg, knowledge_dir, cohort_csv): sample_id
+                for sample_id in sample_ids
+            }
+            for future in as_completed(future_to_sample):
+                sample_id = future_to_sample[future]
+                try:
+                    results.append(future.result())
+                except Exception as e:
+                    label = sample_id or os.path.basename(os.path.normpath(args.input))
+                    print(f"\n[FAILED] {label}: {e}", file=sys.stderr)
+                    if args.verbose_errors:
+                        traceback.print_exc()
+                    failures.append({"sample_id": label, "error": str(e)})
+    else:
+        for sample_id in sample_ids:
+            try:
+                results.append(_run_one_sample(args.input, sample_id, args, cfg, knowledge_dir, cohort_csv))
+            except Exception as e:
+                label = sample_id or os.path.basename(os.path.normpath(args.input))
+                print(f"\n[FAILED] {label}: {e}", file=sys.stderr)
+                if args.verbose_errors:
+                    traceback.print_exc()
+                failures.append({"sample_id": label, "error": str(e)})
+                if not is_batch:
+                    return 1
+                continue
 
     if is_batch:
         completed = len(results)  # ran without raising, regardless of status
@@ -308,6 +327,13 @@ def build_parser() -> argparse.ArgumentParser:
                            "cuts reasoning-token spend substantially (the dominant driver of anthropic/* "
                            "models' output-token cost on this endpoint), at the cost of potentially "
                            "shallower analysis. Default: API default (unset).")
+    run.add_argument("--workers", type=int, default=3,
+                      help="Batch mode only: number of samples to process concurrently (I/O-bound reviewer "
+                           "API calls, run in a thread pool -- safe under concurrency, verified with the "
+                           "rate-limit retry logic and the flock-protected cohort-CSV writer). Default: 3, "
+                           "a conservative choice for a Tier-1 Perplexity account (3 QPS); raise it if your "
+                           "account supports a higher rate limit. Set to 1 for the old sequential behavior. "
+                           "Per-sample log lines will interleave in the console with workers > 1.")
     run.set_defaults(func=cmd_run)
 
     list_cmd = sub.add_parser("list-samples", help="List every sample name discoverable under a cohort root")

@@ -52,6 +52,16 @@ Status as of 2026-10-01.
       run as definitive
 - [ ] Cost/compute reporting (real per-call cost data is already available
       from the API responses — just needs aggregating)
+- [ ] **`confidence` field is uncalibrated** — checked `base.py` and the
+      full knowledge base: `confidence` (low/moderate/high) is purely the
+      model's own free-text self-assessment, with zero rubric tying it to
+      any computed signal (S_Dbw margin, BAF/logR concordance strength,
+      etc.). LLM self-reported confidence is known to correlate poorly with
+      actual accuracy unless explicitly calibrated. Before using it in any
+      reported metric, either (a) validate it post-hoc against ground truth
+      and report the calibration, or (b) replace it with something computed
+      directly (e.g. derived from the S_Dbw margin or from Claude/Gemini's
+      agreement) rather than a self-rating.
 - [ ] Explicit limitations/failure-modes section — we hit several concrete,
       citable ones this week: truncated JSON at low `max_output_tokens`,
       request-size limits, rate limits, non-determinism
@@ -67,23 +77,19 @@ Status as of 2026-10-01.
 2. **Temperature control** — ✅ done. `--temperature`, threaded through all
    three reviewer backends. Caveat (documented in README): reduces but does
    not eliminate run-to-run variance.
-3. **Parallelization** — ⏳ not started, needs a decision: add `--workers N`
-   (thread pool, I/O-bound work). Code is already safe for this (rate-limit
-   retry + flock-protected CSV writer verified under real concurrency).
-   Open question: default worker count given Tier-1 (3 QPS) accounts —
-   proposed 2-3 as a conservative default, overridable via the flag.
+3. **Parallelization** — ✅ done. `--workers N` (thread pool, default 3,
+   given a Tier-1/3-QPS account at the time; raise it as the account's rate
+   limit changes). `--workers 1` preserves the old sequential behavior.
+   Per-sample console output interleaves when workers > 1 (documented).
 4. **Claude vs Gemini PDF handling** — ✅ resolved (not applicable): neither
    model ever receives a raw PDF; `plots.py` renders every plot to PNG/JPEG
    locally before anything is sent. Any output difference is about how
    each model reasons over an image, not PDF parsing.
-5. **Log consolidation** — ⏳ not started, needs a decision. `titan-curate`
-   itself writes no log files (only the intentional structured per-sample
-   artifacts + cohort CSV); the "tons of log files" are SLURM's own
-   per-array-task output files (`logs/titan_curate_%A_%a.log`). Options:
-   (a) switch that cohort to single-job batch mode (one log, loses
-   parallelism), or (b) keep the array job and add a post-run step that
-   concatenates `logs/titan_curate_*.log` into one file (safer than
-   sharing one live file across tasks, which risks interleaved lines).
+5. **Log consolidation** — ✅ done. `scripts/consolidate_array_logs.sh`
+   concatenates a SLURM array job's per-task logs
+   (`logs/titan_curate_<jobid>_<array_index>.log`) into one combined log,
+   sorted numerically by array index, run as a post-job step. Documented
+   in `docs/HPC_SETUP.md` section 7.
 6. **Claude's ~3x output-token cost vs Gemini** — ✅ done. Root cause:
    6000-8000 reasoning tokens spent per Claude call before any visible
    text, not the comment itself being longer. `--reasoning-effort`

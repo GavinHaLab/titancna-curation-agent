@@ -140,6 +140,7 @@ Useful flags:
 --skip-existing             # batch mode: skip a sample if its report already exists (resume a rerun for free)
 --temperature 0             # sampling temperature, both reviewer roles, either backend (default: API default, 1.0)
 --reasoning-effort low       # Perplexity backend only: minimal|low|medium|high|xhigh (default: API default)
+--workers 3                  # batch mode: concurrent samples via a thread pool (default 3; set 1 for sequential)
 ```
 
 In batch mode (`--samples`/`--sample-list-file`/`--all-samples`) a failure on
