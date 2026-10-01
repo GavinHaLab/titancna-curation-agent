@@ -162,9 +162,11 @@ titan-curate run --input /fh/fast/ha_g/.../titan/hmm \
 ```
 
 **Reducing run-to-run variance and Claude's output-token cost:** `--temperature
-0` makes both reviewer roles more consistent across reruns of the same sample
-(not perfectly deterministic — reasoning traces and backend routing still
-introduce some variance even at 0). On the Perplexity backend,
+0` is expected to make both reviewer roles more consistent across reruns of
+the same sample (not independently verified for this pipeline yet — but note
+that for reasoning/extended-thinking-capable models in general, temperature=0
+is known to reduce, not guarantee the elimination of, run-to-run variance).
+On the Perplexity backend,
 `--reasoning-effort low` (or `minimal`) cuts `anthropic/*` models' reasoning-
 token spend substantially — this is the dominant cost driver for the Claude
 role (observed 6000-8000 reasoning tokens per call at the API's default

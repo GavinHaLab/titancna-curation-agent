@@ -51,6 +51,11 @@ Initial tagged release.
   API — text is now extracted directly from `response.output[]`.
 
 ### Known issues / in progress
-See the "Publication readiness" tracker in `docs/PUBLICATION_READINESS.md`
-for the current list of open items (test coverage, CI status, validation
-data, parallelization, log consolidation).
+- `confidence` (low/moderate/high) in each reviewer's output is a free-text
+  LLM self-assessment with no calibration rubric tying it to any computed
+  signal -- not yet validated against ground truth.
+- No benchmark/validation data yet comparing reviewer output against
+  expert-curated ground truth.
+- Broader automated test coverage (reviewer backends, config resolution,
+  CLI argument wiring) is still outstanding beyond the current
+  discovery/evidence-building and consensus/plot-cache regression tests.
