@@ -13,7 +13,6 @@ REVIEW_SCHEMA_HINT = {
     "recommended_num_clusters": "integer",
     "raw_titan_optimal_candidate_id": "string, the lowest S_Dbw candidate id from evidence",
     "overrides_raw_titan_optimal": "boolean",
-    "confidence": "low | moderate | high",
     "ranked_candidates": [
         {
             "rank": "integer",
@@ -31,7 +30,6 @@ REVIEW_SCHEMA_HINT = {
         }
     ],
     "comment": "Precise human-facing rationale, under 750 words total",
-    "human_review_needed": "boolean",
     "human_review_focus": ["short strings"],
 }
 
