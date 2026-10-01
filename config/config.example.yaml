@@ -23,3 +23,14 @@ anthropic:
 gemini:
   api_key: ""            # or leave blank and use GEMINI_API_KEY env var
   model: "gemini-3.1-pro"
+
+# ---- Optional: sampling controls (both reviewer roles, either backend) ----
+# Left unset by default (API default, currently 1.0). Lower (e.g. 0) reduces
+# -- but does not eliminate -- run-to-run variance in the recommendation.
+# temperature: 0
+
+# Perplexity backend only. minimal|low|medium|high|xhigh. Lower effort cuts
+# reasoning-token spend substantially (the dominant driver of anthropic/*
+# models' output-token cost on this endpoint) at the cost of potentially
+# shallower analysis.
+# reasoning_effort: "low"

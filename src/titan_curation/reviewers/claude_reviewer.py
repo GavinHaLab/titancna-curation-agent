@@ -32,6 +32,7 @@ def review(
     knowledge_dir: str,
     api_key: str,
     model: str,
+    temperature: float | None = None,
 ) -> dict:
     """labeled_images: list of (label, image_path), e.g.
     ("ploidy2_cluster1 - genome-wide CNA", "/path/to/img.png")."""
@@ -47,11 +48,16 @@ def review(
         content.append(_image_block(path))
     content.append({"type": "text", "text": user_text})
 
+    optional_kwargs = {}
+    if temperature is not None:
+        optional_kwargs["temperature"] = temperature
+
     message = client.messages.create(
         model=model,
         max_tokens=MAX_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": content}],
+        **optional_kwargs,
     )
     raw_text = "".join(block.text for block in message.content if block.type == "text")
     return _extract_json(raw_text)

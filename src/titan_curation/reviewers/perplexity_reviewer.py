@@ -131,11 +131,21 @@ def review(
     api_key: str,
     model: str,
     reviewer_name: str,
+    temperature: float | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """labeled_images: list of (label, image_path). `reviewer_name` must be
     exactly "claude_sonnet" or "gemini" -- it is threaded into the shared
     prompt so the model's JSON `reviewer` field and this backend's role stay
-    consistent regardless of which underlying `model` id is actually called."""
+    consistent regardless of which underlying `model` id is actually called.
+
+    `temperature` and `reasoning_effort` are left unset (API default) unless
+    given explicitly. temperature=0 reduces but does not eliminate output
+    variance between runs. reasoning_effort (minimal|low|medium|high|xhigh)
+    directly controls reasoning-token spend -- the dominant driver of
+    anthropic/* models' output-token cost on this endpoint (observed
+    6000-8000 reasoning tokens per call at the API's default effort before
+    any visible JSON/comment text is produced)."""
     from perplexity import APIStatusError, Perplexity
 
     client = Perplexity(api_key=api_key)
@@ -157,6 +167,15 @@ def review(
             "list to send fewer images."
         )
 
+    # Only include temperature/reasoning in the call if explicitly set -- the
+    # SDK distinguishes "not passed" (Omit, uses the API's own default) from
+    # an explicit value, so we must not pass None for either.
+    optional_kwargs = {}
+    if temperature is not None:
+        optional_kwargs["temperature"] = temperature
+    if reasoning_effort is not None:
+        optional_kwargs["reasoning"] = {"effort": reasoning_effort}
+
     response = None
     for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
         try:
@@ -166,6 +185,7 @@ def review(
                 input=[{"type": "message", "role": "user", "content": content}],
                 max_output_tokens=MAX_OUTPUT_TOKENS,
                 stream=False,
+                **optional_kwargs,
             )
             break
         except APIStatusError as e:

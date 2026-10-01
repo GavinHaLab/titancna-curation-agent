@@ -42,6 +42,18 @@ class ReviewerConfig:
     perplexity_claude_model: str = DEFAULT_PERPLEXITY_CLAUDE_MODEL
     perplexity_gemini_model: str = DEFAULT_PERPLEXITY_GEMINI_MODEL
 
+    # Sampling controls, applied to both reviewer roles on whichever backend
+    # is active. Left unset (None) by default -- the API's own default is
+    # used unless the caller explicitly opts in, since temperature=0 reduces
+    # but does not eliminate output variance (extended-thinking/reasoning
+    # traces and backend routing still introduce some variance even at 0).
+    temperature: Optional[float] = None
+    # Perplexity Agent API only (`reasoning.effort`): minimal|low|medium|high|xhigh.
+    # Lower effort cuts internal reasoning-token spend substantially (observed
+    # 6000-8000 reasoning tokens per Claude call at the API's default effort)
+    # at the cost of potentially shallower analysis.
+    reasoning_effort: Optional[str] = None
+
     def resolved_backend(self) -> str:
         if self.backend == "perplexity":
             return "perplexity"
@@ -77,6 +89,8 @@ def resolve_config(
     perplexity_key_flag: Optional[str] = None,
     perplexity_claude_model_flag: Optional[str] = None,
     perplexity_gemini_model_flag: Optional[str] = None,
+    temperature_flag: Optional[float] = None,
+    reasoning_effort_flag: Optional[str] = None,
 ) -> ReviewerConfig:
     file_cfg = {}
     if config_path and os.path.isfile(config_path):
@@ -132,6 +146,27 @@ def resolve_config(
     if backend not in ("auto", "direct", "perplexity"):
         raise ValueError(f"Invalid backend '{backend}': must be auto, direct, or perplexity")
 
+    temperature_raw = (
+        temperature_flag
+        if temperature_flag is not None
+        else os.environ.get("TITAN_CURATE_TEMPERATURE")
+        or file_cfg.get("temperature")
+    )
+    temperature = float(temperature_raw) if temperature_raw is not None else None
+
+    reasoning_effort = (
+        reasoning_effort_flag
+        or os.environ.get("TITAN_CURATE_REASONING_EFFORT")
+        or file_cfg.get("reasoning_effort")
+    )
+    if reasoning_effort is not None and reasoning_effort not in (
+        "minimal", "low", "medium", "high", "xhigh",
+    ):
+        raise ValueError(
+            f"Invalid reasoning_effort '{reasoning_effort}': must be one of "
+            "minimal, low, medium, high, xhigh"
+        )
+
     return ReviewerConfig(
         backend=backend,
         anthropic_api_key=anthropic_key,
@@ -141,4 +176,6 @@ def resolve_config(
         perplexity_api_key=perplexity_key,
         perplexity_claude_model=perplexity_claude_model,
         perplexity_gemini_model=perplexity_gemini_model,
+        temperature=temperature,
+        reasoning_effort=reasoning_effort,
     )

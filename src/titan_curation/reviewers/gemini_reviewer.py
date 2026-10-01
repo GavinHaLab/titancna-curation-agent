@@ -22,6 +22,7 @@ def review(
     knowledge_dir: str,
     api_key: str,
     model: str,
+    temperature: float | None = None,
 ) -> dict:
     """labeled_images: list of (label, image_path)."""
     from google import genai
@@ -40,9 +41,13 @@ def review(
         contents.append(types.Part.from_bytes(data=data, mime_type=mime))
     contents.append(user_text)
 
+    config_kwargs = {"system_instruction": system_prompt}
+    if temperature is not None:
+        config_kwargs["temperature"] = temperature
+
     response = client.models.generate_content(
         model=model,
         contents=contents,
-        config=types.GenerateContentConfig(system_instruction=system_prompt),
+        config=types.GenerateContentConfig(**config_kwargs),
     )
     return _extract_json(response.text)

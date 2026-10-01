@@ -83,6 +83,13 @@ def _run_one_sample(input_path: str, sample_id: str | None, args: argparse.Names
     reports_dir = os.path.join(out_dir, "reports")
     os.makedirs(out_dir, exist_ok=True)
 
+    report_path = os.path.join(reports_dir, f"{resolved_sample_id}_curation_report.md")
+    if getattr(args, "skip_existing", False) and os.path.isfile(report_path):
+        print(f"\n=== Sample: {resolved_sample_id} ===")
+        print(f"  --skip-existing set and {report_path} already exists -- skipping "
+              "(both reviewer API calls would otherwise be re-run and re-billed).")
+        return {"sample_id": resolved_sample_id, "status": "skipped-existing"}
+
     print(f"\n=== Sample: {resolved_sample_id} ===")
     print(f"[1/4] Discovering + ranking candidates under {input_path} ...")
     evidence = build_evidence(input_path, resolved_sample_id, evidence_dir, top_n=args.top_n)
@@ -116,12 +123,14 @@ def _run_one_sample(input_path: str, sample_id: str | None, args: argparse.Names
             claude_review = perplexity_reviewer.review(
                 evidence, top, labeled_images, knowledge_dir, cfg.perplexity_api_key,
                 cfg.perplexity_claude_model, reviewer_name="claude_sonnet",
+                temperature=cfg.temperature, reasoning_effort=cfg.reasoning_effort,
             )
         else:
             from .reviewers import claude_reviewer
             print(f"  Claude ({cfg.anthropic_model}) reviewing ...")
             claude_review = claude_reviewer.review(
                 evidence, top, labeled_images, knowledge_dir, cfg.anthropic_api_key, cfg.anthropic_model,
+                temperature=cfg.temperature,
             )
         with open(os.path.join(reviews_dir, "claude_review.json"), "w") as f:
             json.dump(claude_review, f, indent=2)
@@ -136,12 +145,14 @@ def _run_one_sample(input_path: str, sample_id: str | None, args: argparse.Names
             gemini_review = perplexity_reviewer.review(
                 evidence, top, labeled_images, knowledge_dir, cfg.perplexity_api_key,
                 cfg.perplexity_gemini_model, reviewer_name="gemini",
+                temperature=cfg.temperature, reasoning_effort=cfg.reasoning_effort,
             )
         else:
             from .reviewers import gemini_reviewer
             print(f"  Gemini ({cfg.gemini_model}) reviewing ...")
             gemini_review = gemini_reviewer.review(
                 evidence, top, labeled_images, knowledge_dir, cfg.gemini_api_key, cfg.gemini_model,
+                temperature=cfg.temperature,
             )
         with open(os.path.join(reviews_dir, "gemini_review.json"), "w") as f:
             json.dump(gemini_review, f, indent=2)
@@ -186,6 +197,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         perplexity_key_flag=args.perplexity_key,
         perplexity_claude_model_flag=args.perplexity_claude_model,
         perplexity_gemini_model_flag=args.perplexity_gemini_model,
+        temperature_flag=args.temperature,
+        reasoning_effort_flag=args.reasoning_effort,
     )
     knowledge_dir = args.knowledge_dir or os.path.join(os.path.dirname(__file__), "knowledge")
     knowledge_dir = os.path.abspath(knowledge_dir)
@@ -210,11 +223,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     if is_batch:
         completed = len(results)  # ran without raising, regardless of status
-        with_report = sum(1 for r in results if r.get("status") == "ok")
+        with_report = sum(1 for r in results if r.get("status") in ("ok", "skipped-existing"))
+        skipped = sum(1 for r in results if r.get("status") == "skipped-existing")
         print(f"\n=== Batch summary: {completed}/{len(sample_ids)} samples processed "
-              f"({with_report} with a full consensus report, {len(failures)} failed) ===")
+              f"({with_report} with a full consensus report"
+              f"{f', {skipped} skipped via --skip-existing' if skipped else ''}, "
+              f"{len(failures)} failed) ===")
         for r in results:
-            if r.get("status") != "ok":
+            if r.get("status") not in ("ok", "skipped-existing"):
                 print(f"  {r['sample_id']}: {r['status']}")
         for f in failures:
             print(f"  FAILED: {f['sample_id']}: {f['error']}")
@@ -280,6 +296,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--skip-gemini", action="store_true", help="Don't run the Gemini reviewer role even if a key is present")
     run.add_argument("--dry-run", action="store_true", help="Only run deterministic parsing/ranking; no plots, no model calls")
     run.add_argument("--verbose-errors", action="store_true", help="Print full tracebacks for per-sample failures in batch mode")
+    run.add_argument("--skip-existing", action="store_true",
+                      help="In batch mode, skip a sample if its curation report already exists under "
+                           "--out-root (avoids re-spending API calls on a rerun after a partial failure)")
+    run.add_argument("--temperature", type=float, default=None,
+                      help="Sampling temperature for both reviewer roles, on whichever backend is active "
+                           "(default: API default, currently 1.0). Lower (e.g. 0) reduces -- but does not "
+                           "eliminate -- run-to-run variance in the recommendation.")
+    run.add_argument("--reasoning-effort", choices=["minimal", "low", "medium", "high", "xhigh"], default=None,
+                      help="Perplexity backend only: reasoning.effort for both reviewer roles. Lower effort "
+                           "cuts reasoning-token spend substantially (the dominant driver of anthropic/* "
+                           "models' output-token cost on this endpoint), at the cost of potentially "
+                           "shallower analysis. Default: API default (unset).")
     run.set_defaults(func=cmd_run)
 
     list_cmd = sub.add_parser("list-samples", help="List every sample name discoverable under a cohort root")
