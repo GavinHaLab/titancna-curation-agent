@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "TitanCNA Curation Agent"
+abstract: >-
+  A command-line agent that curates TitanCNA copy-number/LOH candidate
+  solutions for tumor sequencing samples using deterministic statistics for
+  triage plus two independent vision-capable LLM reviewers (Claude and
+  Gemini) for visual QC, with a Perplexity-API-only or bring-your-own-key
+  (Anthropic + Google) backend.
+authors:
+  - family-names: Pawar
+    given-names: Aditya
+    affiliation: Fred Hutchinson Cancer Center
+repository-code: "https://github.com/GavinHaLab/titancna-curation-agent"
+license: MIT
+version: 0.1.0
+date-released: "2026-10-01"
