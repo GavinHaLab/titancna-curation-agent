@@ -11,3 +11,4 @@ results/
 .plot_cache/
 .pytest_cache/
 .DS_Store
+docs/TROUBLESHOOTING.local.md
