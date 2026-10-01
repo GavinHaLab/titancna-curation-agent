@@ -17,13 +17,34 @@ from .plots import select_plots_for_candidate
 DEFAULT_AMBIGUITY_CHROMS = ["chr4", "chr7", "chr8", "chr12"]
 
 
+def _candidates_needing_ambiguity_zoom(evidence: dict, max_pairs: int = 1) -> set[str]:
+    """Which candidates get the full per-chromosome zoom treatment (10
+    images each, vs. 6 for a non-ambiguous candidate). Deliberately capped
+    to the `max_pairs` ambiguity pair(s) with the SMALLEST S_Dbw gap (the
+    most genuinely ambiguous/hardest-to-distinguish case) rather than the
+    union of every candidate appearing in ANY pair -- a sample can have
+    several overlapping ambiguity pairs (e.g. one candidate pivoting ~2x
+    ploidy against three others), and flagging every candidate involved in
+    any of them causes a real combinatorial blow-up in image count/request
+    size (confirmed: one real sample hit 46 images / ~6.1MB this way,
+    over the ~5-6MB body-size limit that triggers an instant HTTP 400).
+    Capping to the single closest-margin pair keeps the zoom comparison
+    focused on the case that actually needs visual disambiguation, and
+    keeps per-sample request size bounded regardless of how many ambiguity
+    pairs exist."""
+    flags = evidence.get("ploidy_doubling_ambiguity_flags", [])
+    flags = sorted(flags, key=lambda amb: amb["s_dbw_gap"])[:max_pairs]
+    ambiguous_ids = set()
+    for amb in flags:
+        ambiguous_ids.add(amb["candidate_a"])
+        ambiguous_ids.add(amb["candidate_b"])
+    return ambiguous_ids
+
+
 def _gather_labeled_images(evidence: dict, out_dir: str, ambiguity_chroms: list[str]) -> list[tuple[str, str]]:
     cache_root = os.path.join(out_dir, ".plot_cache")
     top_candidates = evidence["top_candidates_with_segment_metrics"]
-    ambiguous_ids = set()
-    for amb in evidence.get("ploidy_doubling_ambiguity_flags", []):
-        ambiguous_ids.add(amb["candidate_a"])
-        ambiguous_ids.add(amb["candidate_b"])
+    ambiguous_ids = _candidates_needing_ambiguity_zoom(evidence)
 
     labeled_images: list[tuple[str, str]] = []
     for c in top_candidates:
