@@ -3,8 +3,8 @@
 Never loads more than requested: genome-wide plots for the top-N candidates,
 plus per-chromosome plots only for explicitly requested (chrom, candidate)
 pairs (e.g. a ploidy-doubling ambiguity). PDFs are rendered to PNG on demand
-via PyMuPDF so both the Claude and Gemini reviewers get a consistent image
-format without requiring a system poppler install.
+via PyMuPDF so both reviewer roles get a consistent image format without
+requiring a system poppler install.
 """
 from __future__ import annotations
 

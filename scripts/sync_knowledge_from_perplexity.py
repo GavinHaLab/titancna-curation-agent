@@ -9,7 +9,7 @@ What this syncs (the shared source of truth):
 What this NEVER touches (these intentionally differ between the two versions):
   src/titan_curation/cli.py            (local-path input vs. OneDrive connector)
   src/titan_curation/config.py         (API keys vs. platform model access)
-  src/titan_curation/reviewers/*       (direct Anthropic/Gemini API calls vs. subagents)
+  src/titan_curation/reviewers/*       (Perplexity Agent API calls vs. subagents)
   .env.example / config/config.example.yaml
   anything under .git/, results/, .plot_cache/
 

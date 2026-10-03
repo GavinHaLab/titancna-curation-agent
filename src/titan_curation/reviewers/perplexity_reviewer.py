@@ -1,12 +1,11 @@
-"""Reviewer backend that routes BOTH the "claude" and "gemini" reviewer roles
-through a single Perplexity API key, via Perplexity's Agent API
-(`POST /v1/agent`, official `perplexityai` Python SDK). This lets a user with
-only a `PERPLEXITY_API_KEY` (no separate Anthropic/Google keys) run the same
-two-reviewer methodology, by pointing the same call at two different
+"""Reviewer backend that routes BOTH independent reviewer roles through a
+single Perplexity API key, via Perplexity's Agent API (`POST /v1/agent`,
+official `perplexityai` Python SDK). A single `PERPLEXITY_API_KEY` runs the
+two-reviewer methodology by pointing the same call at two different
 `provider/model` IDs:
 
   - Claude role: model="anthropic/claude-sonnet-5-5" (or any anthropic/* id)
-  - Gemini role: model="google/gemini-3.1-pro-preview" (or any google/* id)
+  - Second role: model="openai/gpt-5.5" (or any provider/* id)
 
 Reference: https://docs.perplexity.ai/docs/agent-api/image-attachments and
 https://docs.perplexity.ai/docs/agent-api/quickstart (fetched 2026-09-21).
@@ -134,10 +133,11 @@ def review(
     temperature: float | None = None,
     reasoning_effort: str | None = None,
 ) -> dict:
-    """labeled_images: list of (label, image_path). `reviewer_name` must be
-    exactly "claude_sonnet" or "gemini" -- it is threaded into the shared
-    prompt so the model's JSON `reviewer` field and this backend's role stay
-    consistent regardless of which underlying `model` id is actually called.
+    """labeled_images: list of (label, image_path). `reviewer_name` is the
+    role label (e.g. "claude_sonnet" or the active second-role label) --
+    it is threaded into the shared prompt so the model's JSON `reviewer`
+    field and this backend's role stay consistent regardless of which
+    underlying `model` id is actually called.
 
     `temperature` and `reasoning_effort` are left unset (API default) unless
     given explicitly. temperature=0 reduces but does not eliminate output

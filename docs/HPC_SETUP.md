@@ -1,10 +1,8 @@
 # Running on an HPC cluster (Fred Hutch SciComp / generic SLURM)
 
 This guide sets up `titan-curation-agent` on a shared HPC filesystem and runs
-it against a real TITAN cohort directory using the Perplexity API backend
-(one key drives both the Claude and Gemini reviewer roles). Everything here
-also works with the direct Anthropic + Google backend — swap the key names
-where noted.
+it against a real TITAN cohort directory using the Perplexity API (one key
+drives both the Claude and GPT-5.5 reviewer roles).
 
 Assumes a Fred Hutch-style environment (login/submission nodes, `module`/
 Lmod environment modules, `/fh/fast/...` shared project storage, SLURM
@@ -66,11 +64,7 @@ packages and your account's shared `~/.local`.
 git clone https://github.com/GavinHaLab/titancna-curation-agent.git
 cd titancna-curation-agent
 
-# Perplexity backend only (recommended if you have one Perplexity API key):
-pip install -e ".[perplexity]"
-
-# Or install both backends so you can switch freely:
-pip install -e ".[all]"
+pip install -e .
 ```
 
 Verify:
@@ -134,15 +128,14 @@ titan-curate run \
 This parses every `params.txt`/`segs.txt` for that sample, ranks candidates by
 S_Dbw, flags ploidy-doubling ambiguity, and writes `evidence.json` — with zero
 model calls. If the ranked list and ambiguity flags look right, drop
-`--dry-run` and add `--backend perplexity` for the full run with both
+`--dry-run` and run without `--dry-run` for the full run with both
 reviewers:
 
 ```bash
 titan-curate run \
   --input /fh/fast/ha_g/projects/.../titan/hmm \
   --sample 00-010_LN_L_WGS \
-  --out-root /fh/fast/ha_g/user/$(whoami)/titan_curation/results \
-  --backend perplexity
+  --out-root /fh/fast/ha_g/user/$(whoami)/titan_curation/results
 ```
 
 ## 6. Batch: run every sample (or a named subset) in one SLURM job
@@ -176,7 +169,6 @@ titan-curate run \
   --all-samples \
   --out-root /fh/fast/ha_g/user/$USER/titan_curation/results \
   --cohort-csv /fh/fast/ha_g/user/$USER/titan_curation/results/cohort_titan_curation_summary.csv \
-  --backend perplexity \
   --verbose-errors \
   --skip-existing
 ```
@@ -224,8 +216,7 @@ titan-curate run \
   --input "$COHORT_ROOT" \
   --sample "$SAMPLE" \
   --out-root "$OUT_ROOT" \
-  --cohort-csv "$COHORT_CSV" \
-  --backend perplexity
+  --cohort-csv "$COHORT_CSV"
 ```
 
 Generate `samples.txt` first and size `--array` to match:
@@ -257,7 +248,6 @@ titan-curate run \
   --sample "$SAMPLE" \
   --out-root "$OUT_ROOT" \
   --cohort-csv "$COHORT_CSV" \
-  --backend perplexity \
   --skip-existing
 ```
 
@@ -282,7 +272,7 @@ Pass a second argument to control the output path:
 results/
 ├── 00-010_LN_L_WGS/
 │   ├── evidence/evidence.json
-│   ├── reviews/{claude_review.json, gemini_review.json}
+│   ├── reviews/{claude_review.json, second_review.json}
 │   └── reports/00-010_LN_L_WGS_curation_report.md
 ├── 00-020_PRST_N/
 │   └── ...

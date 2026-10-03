@@ -5,32 +5,18 @@
 # This lets a shared/org key live here while any individual teammate overrides
 # it with their own personal key via env vars or CLI flags, with no code changes.
 
-# Which reviewer transport to use. "auto" (default) picks perplexity if
-# PERPLEXITY_API_KEY is set anywhere in the resolution chain, else direct.
-backend: "auto"   # auto | direct | perplexity
-
-# ---- Perplexity API backend: one key drives BOTH reviewer roles ----
+# One Perplexity API key drives BOTH reviewer roles.
 perplexity:
   api_key: ""                                  # or leave blank and use PERPLEXITY_API_KEY env var
   claude_model: "anthropic/claude-sonnet-5-5"
-  gemini_model: "google/gemini-3.1-pro-preview"
+  second_model: "openai/gpt-5.5"
 
-# ---- Direct provider backend: bring your own Anthropic + Google keys ----
-anthropic:
-  api_key: ""            # or leave blank and use ANTHROPIC_API_KEY env var
-  model: "claude-sonnet-5"
-
-gemini:
-  api_key: ""            # or leave blank and use GEMINI_API_KEY env var
-  model: "gemini-3.1-pro"
-
-# ---- Optional: sampling controls (both reviewer roles, either backend) ----
+# ---- Optional: sampling controls (both reviewer roles) ----
 # Left unset by default (API default, currently 1.0). Lower (e.g. 0) reduces
 # -- but does not eliminate -- run-to-run variance in the recommendation.
 # temperature: 0
 
-# Perplexity backend only. minimal|low|medium|high|xhigh. Lower effort cuts
-# reasoning-token spend substantially (the dominant driver of anthropic/*
-# models' output-token cost on this endpoint) at the cost of potentially
-# shallower analysis.
+# minimal|low|medium|high|xhigh. Lower effort cuts reasoning-token spend
+# substantially (the dominant driver of output-token cost on this endpoint)
+# at the cost of potentially shallower analysis.
 # reasoning_effort: "low"

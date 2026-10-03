@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "titan-curation-agent"
 version = "0.1.0"
-description = "No-API-lock-in agent that curates TitanCNA copy-number/LOH candidate solutions using independent Claude + Gemini visual review."
+description = "Agent that curates TitanCNA copy-number/LOH candidate solutions using two independent LLM visual reviewers via Perplexity's Agent API."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -28,14 +28,11 @@ dependencies = [
     "PyMuPDF>=1.23,<=1.26.0",
     "Pillow>=10.0",
     "PyYAML>=6.0",
+    "perplexityai>=0.1.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
-# Reviewer backends -- install whichever you plan to use (or both).
-direct = ["anthropic>=0.40.0", "google-genai>=1.0.0"]
-perplexity = ["perplexityai>=0.1.0"]
-all = ["anthropic>=0.40.0", "google-genai>=1.0.0", "perplexityai>=0.1.0"]
 
 [project.scripts]
 titan-curate = "titan_curation.cli:main"

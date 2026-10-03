@@ -5,7 +5,7 @@ import json
 import os
 
 REVIEW_SCHEMA_HINT = {
-    "reviewer": "claude_sonnet | gemini",
+    "reviewer": "string -- set to exactly the role name given to you below",
     "sample_id": "string",
     "recommended_candidate_id": "string, e.g. ploidy2_cluster1",
     "recommended_ploidy": "number",

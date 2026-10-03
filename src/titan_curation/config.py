@@ -1,20 +1,29 @@
-"""Resolve API keys, models, and reviewer backend.
+"""Resolve the Perplexity API key, models, and sampling controls.
 
 Precedence for each value: CLI flag > environment variable > config YAML file.
 This lets a shared/org key live in a config file while any individual user can
 override it with their own personal key via env var or flag, and vice versa.
 
-Two reviewer backends are supported, selectable independently of which keys
-happen to be set:
+Both reviewer roles are called through a single PERPLEXITY_API_KEY via
+Perplexity's Agent API, using provider/model ids (anthropic/claude-sonnet-5-5,
+openai/gpt-5.5 by default). The second role was Gemini
+(google/gemini-3.1-pro-preview) until 2026-10-03, swapped out after a
+real-data finding: at temperature=0, Gemini's own pick matched itself across
+two identical reruns only ~65% of the time (Claude: ~94%), including directly
+contradictory numeric readings of the same plot region between runs.
+Perplexity's gateway does not expose any image resolution/detail control for
+either provider (confirmed empirically -- the `detail` parameter is silently
+ignored for both google/* and openai/* models), so the swap was a bet on a
+different model/architecture behaving more consistently by default, not on
+gaining explicit control.
 
-- "direct": call Anthropic and Google APIs directly with ANTHROPIC_API_KEY /
-  GEMINI_API_KEY (the original design).
-- "perplexity": call BOTH reviewer roles through a single PERPLEXITY_API_KEY
-  via Perplexity's Agent API, using provider/model ids
-  (anthropic/claude-sonnet-5-5, google/gemini-3.1-pro-preview by default).
-
-"auto" (the default) picks "perplexity" if PERPLEXITY_API_KEY is set, else
-falls back to "direct".
+There was previously also a "direct" backend (bring-your-own Anthropic +
+Google keys, bypassing Perplexity) with a separate Claude reviewer
+implementation. Removed 2026-10-03 along with Gemini: without Gemini it could
+no longer provide two independent reviewers, and it was never actually used
+(every real run this tool has done has been via Perplexity) -- Perplexity is
+now the only path, which also serves the goal of predictable, standardized
+behavior across different people running this tool.
 """
 from __future__ import annotations
 
@@ -22,55 +31,37 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
-DEFAULT_GEMINI_MODEL = "gemini-3.1-pro"
-
 DEFAULT_PERPLEXITY_CLAUDE_MODEL = "anthropic/claude-sonnet-5-5"
-DEFAULT_PERPLEXITY_GEMINI_MODEL = "google/gemini-3.1-pro-preview"
+# "Second reviewer role" -- deliberately not named after any specific model,
+# since this has already been swapped once (Gemini -> GPT-5.5) and may be
+# again. Update both this default and PERPLEXITY_SECOND_ROLE_LABEL in cli.py
+# together when changing models.
+DEFAULT_PERPLEXITY_SECOND_MODEL = "openai/gpt-5.5"
 
 
 @dataclass
 class ReviewerConfig:
-    backend: str = "auto"  # "auto" | "direct" | "perplexity"
-
-    anthropic_api_key: Optional[str] = None
-    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
-    gemini_api_key: Optional[str] = None
-    gemini_model: str = DEFAULT_GEMINI_MODEL
-
     perplexity_api_key: Optional[str] = None
     perplexity_claude_model: str = DEFAULT_PERPLEXITY_CLAUDE_MODEL
-    perplexity_gemini_model: str = DEFAULT_PERPLEXITY_GEMINI_MODEL
+    perplexity_second_model: str = DEFAULT_PERPLEXITY_SECOND_MODEL
 
-    # Sampling controls, applied to both reviewer roles on whichever backend
-    # is active. Left unset (None) by default -- the API's own default is
-    # used unless the caller explicitly opts in, since temperature=0 reduces
-    # but does not eliminate output variance (extended-thinking/reasoning
-    # traces and backend routing still introduce some variance even at 0).
+    # Sampling controls, applied to both reviewer roles. Left unset (None) by
+    # default -- the API's own default is used unless the caller explicitly
+    # opts in, since temperature=0 reduces but does not eliminate output
+    # variance (extended-thinking/reasoning traces and backend routing still
+    # introduce some variance even at 0).
     temperature: Optional[float] = None
-    # Perplexity Agent API only (`reasoning.effort`): minimal|low|medium|high|xhigh.
-    # Lower effort cuts internal reasoning-token spend substantially (observed
-    # 6000-8000 reasoning tokens per Claude call at the API's default effort)
-    # at the cost of potentially shallower analysis.
+    # `reasoning.effort`: minimal|low|medium|high|xhigh. Lower effort cuts
+    # internal reasoning-token spend -- the dominant driver of output-token
+    # cost on this endpoint (observed 0-8000 reasoning tokens per call
+    # depending on model/sample).
     reasoning_effort: Optional[str] = None
 
-    def resolved_backend(self) -> str:
-        if self.backend == "perplexity":
-            return "perplexity"
-        if self.backend == "direct":
-            return "direct"
-        # auto
-        return "perplexity" if self.perplexity_api_key else "direct"
-
     def has_claude(self) -> bool:
-        if self.resolved_backend() == "perplexity":
-            return bool(self.perplexity_api_key)
-        return bool(self.anthropic_api_key)
+        return bool(self.perplexity_api_key)
 
-    def has_gemini(self) -> bool:
-        if self.resolved_backend() == "perplexity":
-            return bool(self.perplexity_api_key)
-        return bool(self.gemini_api_key)
+    def has_second_reviewer(self) -> bool:
+        return bool(self.perplexity_api_key)
 
 
 def _load_yaml(path: str) -> dict:
@@ -81,44 +72,15 @@ def _load_yaml(path: str) -> dict:
 
 def resolve_config(
     config_path: Optional[str] = None,
-    anthropic_key_flag: Optional[str] = None,
-    gemini_key_flag: Optional[str] = None,
-    anthropic_model_flag: Optional[str] = None,
-    gemini_model_flag: Optional[str] = None,
-    backend_flag: Optional[str] = None,
     perplexity_key_flag: Optional[str] = None,
     perplexity_claude_model_flag: Optional[str] = None,
-    perplexity_gemini_model_flag: Optional[str] = None,
+    perplexity_second_model_flag: Optional[str] = None,
     temperature_flag: Optional[float] = None,
     reasoning_effort_flag: Optional[str] = None,
 ) -> ReviewerConfig:
     file_cfg = {}
     if config_path and os.path.isfile(config_path):
         file_cfg = _load_yaml(config_path)
-
-    anthropic_key = (
-        anthropic_key_flag
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or file_cfg.get("anthropic", {}).get("api_key")
-    )
-    gemini_key = (
-        gemini_key_flag
-        or os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("GOOGLE_API_KEY")
-        or file_cfg.get("gemini", {}).get("api_key")
-    )
-    anthropic_model = (
-        anthropic_model_flag
-        or os.environ.get("ANTHROPIC_MODEL")
-        or file_cfg.get("anthropic", {}).get("model")
-        or DEFAULT_ANTHROPIC_MODEL
-    )
-    gemini_model = (
-        gemini_model_flag
-        or os.environ.get("GEMINI_MODEL")
-        or file_cfg.get("gemini", {}).get("model")
-        or DEFAULT_GEMINI_MODEL
-    )
 
     perplexity_key = (
         perplexity_key_flag
@@ -131,20 +93,12 @@ def resolve_config(
         or file_cfg.get("perplexity", {}).get("claude_model")
         or DEFAULT_PERPLEXITY_CLAUDE_MODEL
     )
-    perplexity_gemini_model = (
-        perplexity_gemini_model_flag
-        or os.environ.get("PERPLEXITY_GEMINI_MODEL")
-        or file_cfg.get("perplexity", {}).get("gemini_model")
-        or DEFAULT_PERPLEXITY_GEMINI_MODEL
+    perplexity_second_model = (
+        perplexity_second_model_flag
+        or os.environ.get("PERPLEXITY_SECOND_MODEL")
+        or file_cfg.get("perplexity", {}).get("second_model")
+        or DEFAULT_PERPLEXITY_SECOND_MODEL
     )
-    backend = (
-        backend_flag
-        or os.environ.get("TITAN_CURATE_BACKEND")
-        or file_cfg.get("backend")
-        or "auto"
-    )
-    if backend not in ("auto", "direct", "perplexity"):
-        raise ValueError(f"Invalid backend '{backend}': must be auto, direct, or perplexity")
 
     temperature_raw = (
         temperature_flag
@@ -168,14 +122,9 @@ def resolve_config(
         )
 
     return ReviewerConfig(
-        backend=backend,
-        anthropic_api_key=anthropic_key,
-        anthropic_model=anthropic_model,
-        gemini_api_key=gemini_key,
-        gemini_model=gemini_model,
         perplexity_api_key=perplexity_key,
         perplexity_claude_model=perplexity_claude_model,
-        perplexity_gemini_model=perplexity_gemini_model,
+        perplexity_second_model=perplexity_second_model,
         temperature=temperature,
         reasoning_effort=reasoning_effort,
     )

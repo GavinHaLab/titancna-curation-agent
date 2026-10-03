@@ -2,10 +2,11 @@
 
 Curates TitanCNA copy-number/LOH candidate solutions for a tumor sample using
 deterministic statistics for triage and two independent vision-capable LLM
-reviewers (Claude and Gemini) for the actual visual QC call. Point it at a
+reviewers (Claude and GPT-5.5, both routed through Perplexity's Agent API)
+for the actual visual QC call. Point it at a
 real TITAN HMM cohort directory (or a local single-sample folder) — no
-OneDrive, no upload limits required. Drive the two reviewers with your own
-Anthropic + Google API keys, **or** with a single Perplexity API key.
+OneDrive, no upload limits required. A single Perplexity API key drives
+both reviewers.
 
 This is the standalone, bring-your-own-API-key counterpart to the
 ["TitanCNA Curation Agent"](#relationship-to-the-perplexity-computer-prototype)
@@ -34,57 +35,49 @@ per-chromosome plots, before being given the numeric ranking.
 git clone <this-repo>
 cd titan-curation-agent
 pip install -e .
-
-# Pick the reviewer backend(s) you plan to use (installs the matching SDK):
-pip install -e ".[perplexity]"   # single Perplexity API key drives both reviewers
-pip install -e ".[direct]"       # separate Anthropic + Google API keys
-pip install -e ".[all]"          # both backends available, switch anytime
 ```
 
 Requires Python 3.10+. No system dependencies (PDF rendering uses PyMuPDF,
 pure Python/C-extension, no poppler install needed).
 
-## Configure your API key(s)
+## Configure your API key
 
-Two reviewer **backends** are supported — pick whichever matches the keys you
-have. `--backend auto` (the default) picks Perplexity if `PERPLEXITY_API_KEY`
-is set, otherwise direct. CLI flags win over environment variables, which win
-over `config.yaml`.
-
-**Backend 1: Perplexity API (one key, both reviewers)** — recommended if you
-only have a Perplexity API key. Get one at [console.perplexity.ai](https://console.perplexity.ai)
-(this is a separate product from a Perplexity account / Computer credits).
+A single Perplexity API key drives both reviewer roles. CLI flags win over
+environment variables, which win over `config.yaml`. Get a key at
+[console.perplexity.ai](https://console.perplexity.ai) (this is a separate
+product from a Perplexity account / Computer credits).
 
 ```bash
+# Option A: environment variable (simplest)
 export PERPLEXITY_API_KEY=pplx-...
-titan-curate run --input ... --sample <name> --backend perplexity
+titan-curate run --input ... --sample <name>
+
+# Option B: your own config file
+cp config/config.example.yaml config.yaml   # then fill in the key/models
+titan-curate run --input ... --sample <name> --config config.yaml
+
+# Option C: per-invocation flag (handy for a personal key on a shared machine)
+titan-curate run --input ... --sample <name> --perplexity-key pplx-...
 ```
 
 This calls Perplexity's Agent API once per reviewer role, pointed at
 `anthropic/claude-sonnet-5-5` for the "claude_sonnet" role and
-`google/gemini-3.1-pro-preview` for the "gemini" role by default (override with
-`--perplexity-claude-model` / `--perplexity-gemini-model` or the matching env
-vars). Full setup walkthrough: [`docs/HPC_SETUP.md`](docs/HPC_SETUP.md).
-
-**Backend 2: direct Anthropic + Google keys** (the original design):
-
-```bash
-# Option A: environment variables (simplest)
-export ANTHROPIC_API_KEY=sk-ant-...
-export GEMINI_API_KEY=...
-titan-curate run --input ... --sample <name> --backend direct
-
-# Option B: your own config file
-cp config/config.example.yaml config.yaml   # then fill in keys/models
-titan-curate run --input ... --sample <name> --config config.yaml
-
-# Option C: per-invocation flags (handy for a personal key on a shared machine)
-titan-curate run --input ... --sample <name> --anthropic-key sk-ant-... --gemini-key ...
-```
+`openai/gpt-5.5` for the second role by default (override with
+`--perplexity-claude-model` / `--perplexity-second-model` or the matching env
+vars, `PERPLEXITY_CLAUDE_MODEL` / `PERPLEXITY_SECOND_MODEL`). The second role
+was Gemini (`google/gemini-3.1-pro-preview`) until 2026-10-03 -- swapped
+after a real-data finding that it was only ~65% self-consistent at
+temperature=0 on a real cohort (Claude: ~94%), including directly
+contradictory numeric readings of the same plot region between reruns.
+Note Perplexity's gateway doesn't expose any image resolution/detail control
+for either provider (confirmed empirically), so this is a bet on a different
+model/architecture behaving more consistently by default, not a tuned fix --
+worth re-validating (same temperature=0 rerun methodology) before trusting
+it blindly. Full setup walkthrough: [`docs/HPC_SETUP.md`](docs/HPC_SETUP.md).
 
 You can run with only one reviewer role configured (`--skip-claude` /
-`--skip-gemini`, or simply omit that key) — the tool will save that single
-review, but the merged consensus report needs both.
+`--skip-second`) — the tool will save that single review, but the merged
+consensus report needs both.
 
 ## Run it
 
@@ -134,12 +127,11 @@ Useful flags:
 --top-n 5                  # how many S_Dbw-ranked candidates to visually review (default 5)
 --ambiguity-chromosomes chr4 chr7 chr8 chr12   # per-chromosome zooms for ploidy-doubling pairs
 --dry-run                  # deterministic parsing + ranking only, no plots, no API calls, no cost
---backend {auto,direct,perplexity}             # reviewer transport (default auto)
 --cohort-csv results/cohort_titan_curation_summary.csv   # shared append target across samples
 --verbose-errors           # full tracebacks for per-sample failures in batch mode
 --skip-existing             # batch mode: skip a sample if its report already exists (resume a rerun for free)
---temperature 0             # sampling temperature, both reviewer roles, either backend (default: API default, 1.0)
---reasoning-effort low       # Perplexity backend only: minimal|low|medium|high|xhigh (default: API default)
+--temperature 0             # sampling temperature, both reviewer roles (default: API default, 1.0)
+--reasoning-effort low       # minimal|low|medium|high|xhigh (default: API default)
 --workers 3                  # batch mode: concurrent samples via a thread pool (default 3; set 1 for sequential)
 ```
 
@@ -166,12 +158,11 @@ titan-curate run --input /fh/fast/ha_g/.../titan/hmm \
 the same sample (not independently verified for this pipeline yet — but note
 that for reasoning/extended-thinking-capable models in general, temperature=0
 is known to reduce, not guarantee the elimination of, run-to-run variance).
-On the Perplexity backend,
-`--reasoning-effort low` (or `minimal`) cuts `anthropic/*` models' reasoning-
-token spend substantially — this is the dominant cost driver for the Claude
-role (observed 6000-8000 reasoning tokens per call at the API's default
-effort, before any of the visible comment/JSON text is produced), at the
-cost of potentially shallower analysis.
+`--reasoning-effort low` (or `minimal`) cuts reasoning-token spend
+substantially — this is the dominant cost driver for the Claude role
+(observed 6000-8000 reasoning tokens per call at the API's default effort,
+before any of the visible comment/JSON text is produced), at the cost of
+potentially shallower analysis.
 
 Run `--dry-run` first on any new dataset to sanity-check discovery/parsing
 before spending API calls.
@@ -190,7 +181,7 @@ audit/reproducibility):
     │   └── candidate_metrics.csv
     ├── reviews/
     │   ├── claude_review.json         # raw structured output, reviewer = "claude_sonnet"
-    │   └── gemini_review.json         # raw structured output, reviewer = "gemini"
+    │   └── second_review.json         # raw structured output of the second reviewer role (reviewer = "GPT-5.5")
     └── reports/
         └── <sample_id>_curation_report.md      # <-- deliverable 1: per-sample report
 ```
@@ -205,7 +196,7 @@ batch summary at the end:
 
 ```bash
 titan-curate run --input /fh/fast/ha_g/.../titan/hmm \
-  --all-samples --out-root results --backend perplexity \
+  --all-samples --out-root results \
   --cohort-csv results/cohort_titan_curation_summary.csv
 ```
 
@@ -237,11 +228,9 @@ src/titan_curation/
   evidence_builder.py     ranking + segment-metric evidence.json / candidate_metrics.csv
   plots.py                 selective plot lookup (CNA/CNASEG/LOH/LOHSEG/CF/subclone,
                           PDF preferred else PNG) + on-demand PDF->PNG rendering (PyMuPDF)
-  config.py                 API key / model / backend resolution (flag > env > config.yaml)
+  config.py                 Perplexity API key / model resolution (flag > env > config.yaml)
   reviewers/
     base.py                 shared system/user prompt construction, JSON schema
-    claude_reviewer.py      Anthropic API backend (direct)
-    gemini_reviewer.py      Google Generative AI API backend (direct)
     perplexity_reviewer.py  Perplexity Agent API backend (drives BOTH reviewer roles)
   consensus.py              merges both reviews into the per-sample report + cohort CSV row
   cli.py                     `titan-curate run` / `titan-curate list-samples` entry point

@@ -16,6 +16,14 @@ from .plots import select_plots_for_candidate
 
 DEFAULT_AMBIGUITY_CHROMS = ["chr4", "chr7", "chr8", "chr12"]
 
+# Display label for the Perplexity backend's second reviewer role -- update
+# this alongside DEFAULT_PERPLEXITY_SECOND_MODEL in config.py when changing
+# which model fills that role (previously Gemini, swapped to GPT-5.5 on
+# 2026-10-03 after Gemini proved only ~65% self-consistent at temperature=0
+# on this cohort). Also used as the "reviewer" field value the model is
+# asked to self-report in its JSON response.
+PERPLEXITY_SECOND_ROLE_LABEL = "GPT-5.5"
+
 
 def _candidates_needing_ambiguity_zoom(evidence: dict, max_pairs: int = 1) -> set[str]:
     """Which candidates get the full per-chromosome zoom treatment (10
@@ -134,67 +142,52 @@ def _run_one_sample(input_path: str, sample_id: str | None, args: argparse.Names
 
     os.makedirs(reviews_dir, exist_ok=True)
     claude_review = None
-    gemini_review = None
-    backend = cfg.resolved_backend()
+    second_review = None
 
-    print(f"[3/4] Running independent reviewers (backend: {backend}) ...")
+    print("[3/4] Running independent reviewers (Perplexity) ...")
     if cfg.has_claude() and not args.skip_claude:
-        if backend == "perplexity":
-            from .reviewers import perplexity_reviewer
-            print(f"  Claude role via Perplexity API ({cfg.perplexity_claude_model}) reviewing ...")
-            claude_review = perplexity_reviewer.review(
-                evidence, top, labeled_images, knowledge_dir, cfg.perplexity_api_key,
-                cfg.perplexity_claude_model, reviewer_name="claude_sonnet",
-                temperature=cfg.temperature, reasoning_effort=cfg.reasoning_effort,
-            )
-        else:
-            from .reviewers import claude_reviewer
-            print(f"  Claude ({cfg.anthropic_model}) reviewing ...")
-            claude_review = claude_reviewer.review(
-                evidence, top, labeled_images, knowledge_dir, cfg.anthropic_api_key, cfg.anthropic_model,
-                temperature=cfg.temperature,
-            )
+        from .reviewers import perplexity_reviewer
+        print(f"  Claude role via Perplexity API ({cfg.perplexity_claude_model}) reviewing ...")
+        claude_review = perplexity_reviewer.review(
+            evidence, top, labeled_images, knowledge_dir, cfg.perplexity_api_key,
+            cfg.perplexity_claude_model, reviewer_name="claude_sonnet",
+            temperature=cfg.temperature, reasoning_effort=cfg.reasoning_effort,
+        )
         with open(os.path.join(reviews_dir, "claude_review.json"), "w") as f:
             json.dump(claude_review, f, indent=2)
         print(f"    -> recommends {claude_review.get('recommended_candidate_id')}")
     else:
-        print("  Skipping Claude (no key for the active backend, or --skip-claude set).")
+        print("  Skipping Claude (no PERPLEXITY_API_KEY, or --skip-claude set).")
 
-    if cfg.has_gemini() and not args.skip_gemini:
-        if backend == "perplexity":
-            from .reviewers import perplexity_reviewer
-            print(f"  Gemini role via Perplexity API ({cfg.perplexity_gemini_model}) reviewing ...")
-            gemini_review = perplexity_reviewer.review(
-                evidence, top, labeled_images, knowledge_dir, cfg.perplexity_api_key,
-                cfg.perplexity_gemini_model, reviewer_name="gemini",
-                temperature=cfg.temperature, reasoning_effort=cfg.reasoning_effort,
-            )
-        else:
-            from .reviewers import gemini_reviewer
-            print(f"  Gemini ({cfg.gemini_model}) reviewing ...")
-            gemini_review = gemini_reviewer.review(
-                evidence, top, labeled_images, knowledge_dir, cfg.gemini_api_key, cfg.gemini_model,
-                temperature=cfg.temperature,
-            )
-        with open(os.path.join(reviews_dir, "gemini_review.json"), "w") as f:
-            json.dump(gemini_review, f, indent=2)
-        print(f"    -> recommends {gemini_review.get('recommended_candidate_id')}")
+    if cfg.has_second_reviewer() and not args.skip_second:
+        from .reviewers import perplexity_reviewer
+        print(f"  {PERPLEXITY_SECOND_ROLE_LABEL} role via Perplexity API "
+              f"({cfg.perplexity_second_model}) reviewing ...")
+        second_review = perplexity_reviewer.review(
+            evidence, top, labeled_images, knowledge_dir, cfg.perplexity_api_key,
+            cfg.perplexity_second_model, reviewer_name=PERPLEXITY_SECOND_ROLE_LABEL,
+            temperature=cfg.temperature, reasoning_effort=cfg.reasoning_effort,
+        )
+        with open(os.path.join(reviews_dir, "second_review.json"), "w") as f:
+            json.dump(second_review, f, indent=2)
+        print(f"    -> recommends {second_review.get('recommended_candidate_id')}")
     else:
-        print("  Skipping Gemini (no key for the active backend, or --skip-gemini set).")
+        print("  Skipping second reviewer (no PERPLEXITY_API_KEY, or --skip-second set).")
 
-    if not claude_review and not gemini_review:
+    if not claude_review and not second_review:
         print(f"  No reviewer ran for {resolved_sample_id} (missing API keys). "
               f"Evidence-only output is in {evidence_dir}/.")
         return {"sample_id": resolved_sample_id, "status": "no-reviewers"}
 
-    if not (claude_review and gemini_review):
+    if not (claude_review and second_review):
         print("  Only one reviewer ran -- skipping the merged consensus report (needs both). "
               "Its individual review JSON has been saved above.")
         return {"sample_id": resolved_sample_id, "status": "single-reviewer-only"}
 
     print("[4/4] Building consensus report ...")
     out_md = os.path.join(reports_dir, f"{resolved_sample_id}_curation_report.md")
-    row = build_report(evidence, claude_review, gemini_review, out_md, cohort_csv)
+    row = build_report(evidence, claude_review, second_review, out_md, cohort_csv,
+                        second_reviewer_label=PERPLEXITY_SECOND_ROLE_LABEL)
     print(f"  consensus candidate: {row['consensus_candidate']}  |  status: {row['status']}")
     print(f"  Wrote:\n    {out_md}\n    {cohort_csv}")
     return {"sample_id": resolved_sample_id, "status": "ok", "row": row, "report": out_md}
@@ -211,14 +204,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     cfg = resolve_config(
         config_path=args.config,
-        anthropic_key_flag=args.anthropic_key,
-        gemini_key_flag=args.gemini_key,
-        anthropic_model_flag=args.anthropic_model,
-        gemini_model_flag=args.gemini_model,
-        backend_flag=args.backend,
         perplexity_key_flag=args.perplexity_key,
         perplexity_claude_model_flag=args.perplexity_claude_model,
-        perplexity_gemini_model_flag=args.perplexity_gemini_model,
+        perplexity_second_model_flag=args.perplexity_second_model,
         temperature_flag=args.temperature,
         reasoning_effort_flag=args.reasoning_effort,
     )
@@ -315,38 +303,29 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", default=None, help="Optional YAML config file with API keys/models "
                       "(see config/config.example.yaml)")
 
-    run.add_argument("--backend", choices=["auto", "direct", "perplexity"], default=None,
-                      help="Reviewer transport: 'direct' calls Anthropic/Google APIs directly, "
-                           "'perplexity' routes both reviewer roles through one Perplexity API key, "
-                           "'auto' (default) picks perplexity if PERPLEXITY_API_KEY is set, else direct")
     run.add_argument("--perplexity-key", default=None, help="Overrides PERPLEXITY_API_KEY env var")
     run.add_argument("--perplexity-claude-model", default=None,
                       help="Perplexity provider/model id for the Claude reviewer role "
                            "(default: anthropic/claude-sonnet-5-5)")
-    run.add_argument("--perplexity-gemini-model", default=None,
-                      help="Perplexity provider/model id for the Gemini reviewer role "
-                           "(default: google/gemini-3.1-pro-preview)")
-
-    run.add_argument("--anthropic-key", default=None, help="Overrides ANTHROPIC_API_KEY env var (direct backend)")
-    run.add_argument("--gemini-key", default=None, help="Overrides GEMINI_API_KEY/GOOGLE_API_KEY env var (direct backend)")
-    run.add_argument("--anthropic-model", default=None, help="Overrides ANTHROPIC_MODEL env var (direct backend)")
-    run.add_argument("--gemini-model", default=None, help="Overrides GEMINI_MODEL env var (direct backend)")
+    run.add_argument("--perplexity-second-model", default=None,
+                      help="Perplexity provider/model id for the second reviewer role "
+                           "(default: openai/gpt-5.5)")
 
     run.add_argument("--skip-claude", action="store_true", help="Don't run the Claude reviewer role even if a key is present")
-    run.add_argument("--skip-gemini", action="store_true", help="Don't run the Gemini reviewer role even if a key is present")
+    run.add_argument("--skip-second", action="store_true", help="Don't run the second reviewer role even if a key is present")
     run.add_argument("--dry-run", action="store_true", help="Only run deterministic parsing/ranking; no plots, no model calls")
     run.add_argument("--verbose-errors", action="store_true", help="Print full tracebacks for per-sample failures in batch mode")
     run.add_argument("--skip-existing", action="store_true",
                       help="In batch mode, skip a sample if its curation report already exists under "
                            "--out-root (avoids re-spending API calls on a rerun after a partial failure)")
     run.add_argument("--temperature", type=float, default=None,
-                      help="Sampling temperature for both reviewer roles, on whichever backend is active "
+                      help="Sampling temperature for both reviewer roles "
                            "(default: API default, currently 1.0). Lower (e.g. 0) reduces -- but does not "
                            "eliminate -- run-to-run variance in the recommendation.")
     run.add_argument("--reasoning-effort", choices=["minimal", "low", "medium", "high", "xhigh"], default=None,
-                      help="Perplexity backend only: reasoning.effort for both reviewer roles. Lower effort "
-                           "cuts reasoning-token spend substantially (the dominant driver of anthropic/* "
-                           "models' output-token cost on this endpoint), at the cost of potentially "
+                      help="reasoning.effort for both reviewer roles. Lower effort "
+                           "cuts reasoning-token spend substantially (the dominant driver of output-token "
+                           "cost on this endpoint), at the cost of potentially "
                            "shallower analysis. Default: API default (unset).")
     run.add_argument("--workers", type=int, default=3,
                       help="Batch mode only: number of samples to process concurrently (I/O-bound reviewer "
